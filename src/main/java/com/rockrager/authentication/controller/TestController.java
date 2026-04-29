@@ -7,6 +7,6 @@ public class TestController {
 
     @GetMapping("/test")
     public String testApi(){
-        return "Rockrangerz Spring Boot Docker Test Successful";
+        return "Health : Server is active and running";
     }
 }
