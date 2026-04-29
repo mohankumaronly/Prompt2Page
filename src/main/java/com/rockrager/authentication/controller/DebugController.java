@@ -20,7 +20,6 @@ public class DebugController {
     public Map<String, Object> getRequestInfo(HttpServletRequest request) {
         Map<String, Object> info = new HashMap<>();
 
-        // Request details
         info.put("method", request.getMethod());
         info.put("requestURI", request.getRequestURI());
         info.put("servletPath", request.getServletPath());
@@ -28,7 +27,6 @@ public class DebugController {
         info.put("pathInfo", request.getPathInfo());
         info.put("queryString", request.getQueryString());
 
-        // Headers
         Map<String, String> headers = new HashMap<>();
         Enumeration<String> headerNames = request.getHeaderNames();
         while (headerNames.hasMoreElements()) {
@@ -37,7 +35,6 @@ public class DebugController {
         }
         info.put("headers", headers);
 
-        // Server details
         info.put("serverName", request.getServerName());
         info.put("serverPort", request.getServerPort());
         info.put("remoteAddr", request.getRemoteAddr());
