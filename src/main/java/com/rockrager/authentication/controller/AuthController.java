@@ -4,9 +4,13 @@ import com.rockrager.authentication.dto.request.*;
 import com.rockrager.authentication.dto.response.AuthResponse;
 import com.rockrager.authentication.service.AuthService;
 
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -17,6 +21,15 @@ public class AuthController {
 
     private final AuthService authService;
 
+    @Value("${cookie.secure:false}")
+    private boolean cookieSecure;
+
+    @Value("${cookie.same-site:Strict}")
+    private String cookieSameSite;
+
+    @Value("${cookie.refresh-token-max-age:604800}")
+    private int refreshTokenMaxAge; // 7 days in seconds
+
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(
             @Valid @RequestBody RegisterRequest request
@@ -24,26 +37,77 @@ public class AuthController {
         return ResponseEntity.ok(authService.register(request));
     }
 
-
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(
-            @Valid @RequestBody LoginRequest request
+            @Valid @RequestBody LoginRequest request,
+            HttpServletResponse response
     ) {
-        return ResponseEntity.ok(authService.login(request));
+        AuthResponse authResponse = authService.login(request);
+
+        // Set refresh token as HTTP-only cookie
+        Cookie refreshTokenCookie = new Cookie("refreshToken", authResponse.getRefreshToken());
+        refreshTokenCookie.setHttpOnly(true);
+        refreshTokenCookie.setSecure(cookieSecure); // true in production (HTTPS), false in development
+        refreshTokenCookie.setPath("/api/auth");
+        refreshTokenCookie.setMaxAge(refreshTokenMaxAge);
+        refreshTokenCookie.setAttribute("SameSite", cookieSameSite);
+        response.addCookie(refreshTokenCookie);
+
+        // Remove refreshToken from response body for security
+        authResponse.setRefreshToken(null);
+
+        return ResponseEntity.ok(authResponse);
     }
 
     @PostMapping("/refresh")
     public ResponseEntity<AuthResponse> refreshToken(
-            @RequestBody RefreshTokenRequest request
+            HttpServletRequest request,
+            HttpServletResponse response
     ) {
-        return ResponseEntity.ok(authService.refreshToken(request.getRefreshToken()));
+        String refreshToken = extractRefreshTokenFromCookies(request);
+
+        if (refreshToken == null) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        AuthResponse authResponse = authService.refreshToken(refreshToken);
+
+        // Set new refresh token as cookie
+        Cookie refreshTokenCookie = new Cookie("refreshToken", authResponse.getRefreshToken());
+        refreshTokenCookie.setHttpOnly(true);
+        refreshTokenCookie.setSecure(cookieSecure);
+        refreshTokenCookie.setPath("/api/auth");
+        refreshTokenCookie.setMaxAge(refreshTokenMaxAge);
+        refreshTokenCookie.setAttribute("SameSite", cookieSameSite);
+        response.addCookie(refreshTokenCookie);
+
+        authResponse.setRefreshToken(null);
+
+        return ResponseEntity.ok(authResponse);
     }
 
     @PostMapping("/logout")
     public ResponseEntity<String> logout(
-            @RequestBody LogoutRequest request
+            HttpServletRequest request,
+            HttpServletResponse response
     ) {
-        return ResponseEntity.ok(authService.logout(request.getRefreshToken()));
+        String refreshToken = extractRefreshTokenFromCookies(request);
+
+        if (refreshToken == null) {
+            return ResponseEntity.badRequest().body("No refresh token found");
+        }
+
+        String result = authService.logout(refreshToken);
+
+        // Clear the refresh token cookie
+        Cookie refreshTokenCookie = new Cookie("refreshToken", null);
+        refreshTokenCookie.setHttpOnly(true);
+        refreshTokenCookie.setSecure(cookieSecure);
+        refreshTokenCookie.setPath("/api/auth");
+        refreshTokenCookie.setMaxAge(0);
+        response.addCookie(refreshTokenCookie);
+
+        return ResponseEntity.ok(result);
     }
 
     @PostMapping("/verify-email")
@@ -83,5 +147,18 @@ public class AuthController {
             @RequestParam String newPassword
     ) {
         return ResponseEntity.ok(authService.resetPassword(token, newPassword));
+    }
+
+    // Helper method to extract refresh token from cookies
+    private String extractRefreshTokenFromCookies(HttpServletRequest request) {
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if ("refreshToken".equals(cookie.getName())) {
+                    return cookie.getValue();
+                }
+            }
+        }
+        return null;
     }
 }
