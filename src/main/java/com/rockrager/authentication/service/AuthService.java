@@ -44,8 +44,8 @@ public class AuthService {
         }
 
         User user = User.builder()
-                .firstName(request.getFirstName())  // ADDED
-                .lastName(request.getLastName())    // ADDED
+                .firstName(request.getFirstName())
+                .lastName(request.getLastName())
                 .email(request.getEmail())
                 .password(passwordEncoder.encode(request.getPassword()))
                 .emailVerified(false)
@@ -78,10 +78,14 @@ public class AuthService {
 
         emailVerificationTokenRepository.save(emailVerificationTokenEntity);
 
-        // Send verification email
+        // Send verification email with user's name
         try {
-            emailService.sendVerificationEmail(savedUser.getEmail(), verificationToken);
-            log.info("Verification email sent to: {}", savedUser.getEmail());
+            emailService.sendVerificationEmail(
+                    savedUser.getEmail(),
+                    savedUser.getFirstName(),  // Pass user's first name for personalization
+                    verificationToken
+            );
+            log.info("Verification email sent to: {} ({})", savedUser.getEmail(), savedUser.getFirstName());
         } catch (Exception e) {
             log.error("Failed to send verification email to: {}", savedUser.getEmail(), e);
             // Don't throw exception - registration still successful, just email failed
@@ -187,9 +191,41 @@ public class AuthService {
 
         emailVerificationTokenRepository.delete(verificationToken);
 
-        log.info("Email verified successfully for user: {}", user.getEmail());
+        log.info("Email verified successfully for user: {} ({})", user.getEmail(), user.getFirstName());
+
+        // Send welcome email with retry mechanism
+        sendWelcomeEmailWithRetry(user.getEmail(), user.getFirstName(), 3);
 
         return "Email verified successfully. You can now login.";
+    }
+
+    private void sendWelcomeEmailWithRetry(String email, String firstName, int maxRetries) {
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                emailService.sendWelcomeEmail(email, firstName);
+                log.info("Welcome email sent successfully to: {} on attempt {}", email, attempt);
+                return;
+            } catch (Exception e) {
+                log.warn("Failed to send welcome email to: {} on attempt {}/{}", email, attempt, maxRetries, e);
+                if (attempt == maxRetries) {
+                    log.error("Failed to send welcome email to: {} after {} attempts", email, maxRetries);
+                    // Store in database for later retry or send to dead letter queue
+                    storeFailedEmailNotification(email, firstName, "WELCOME");
+                }
+                try {
+                    Thread.sleep(1000 * attempt); // Exponential backoff: 1s, 2s, 3s
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+    }
+
+    private void storeFailedEmailNotification(String email, String firstName, String emailType) {
+        // You can create a FailedEmail entity to store failed emails for retry later
+        log.info("Storing failed email notification for: {} of type: {}", email, emailType);
+        // Implement database storage for failed emails if needed
     }
 
     @Transactional
@@ -214,10 +250,14 @@ public class AuthService {
 
         passwordResetTokenRepository.save(resetToken);
 
-        // Send password reset email
+        // Send password reset email with user's name
         try {
-            emailService.sendPasswordResetEmail(user.getEmail(), token);
-            log.info("Password reset email sent to: {}", user.getEmail());
+            emailService.sendPasswordResetEmail(
+                    user.getEmail(),
+                    user.getFirstName(),  // Pass user's first name for personalization
+                    token
+            );
+            log.info("Password reset email sent to: {} ({})", user.getEmail(), user.getFirstName());
         } catch (Exception e) {
             log.error("Failed to send password reset email to: {}", user.getEmail(), e);
             throw new RuntimeException("Failed to send password reset email. Please try again.");

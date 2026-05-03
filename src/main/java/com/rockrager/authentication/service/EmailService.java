@@ -1,11 +1,15 @@
 package com.rockrager.authentication.service;
 
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.MailException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 @Slf4j
@@ -14,179 +18,230 @@ import org.springframework.stereotype.Service;
 public class EmailService {
 
     private final JavaMailSender mailSender;
+    private final EmailTemplateService emailTemplateService;
+
+    @Value("${mail.from.address:}")
+    private String fromAddress;
+
+    @Value("${mail.from.name:}")
+    private String fromName;
+
+    @Value("${mail.html.enabled:true}")
+    private boolean htmlEmailEnabled;
 
     @Value("${app.base-url}")
     private String baseUrl;
 
-    @Value("${spring.mail.username}")
-    private String smtpUsername;
-
-    @Value("${mail.from.address:${spring.mail.username}}")
-    private String fromAddress;
-
-    public void sendVerificationEmail(String to, String token) {
-        log.info("========== 📧 EMAIL SERVICE: sendVerificationEmail CALLED ==========");
-        log.info("📧 Method entered at: {}", System.currentTimeMillis());
-        log.info("📧 Recipient: {}", to);
-        log.info("📧 Token: {}", token);
+    @Async
+    public void sendVerificationEmail(String to, String userName, String token) {
+        log.info("Sending verification email to: {}", to);
 
         try {
-            String subject = "Verify Your Email - RockRager Authentication";
             String verificationLink = baseUrl + "/api/auth/verify-email?token=" + token;
+            String subject = "Verify Your Email - RockRager Authentication";
 
-            log.info("📧 Base URL: {}", baseUrl);
-            log.info("📧 Verification link: {}", verificationLink);
-            log.info("📧 Subject: {}", subject);
+            if (htmlEmailEnabled) {
+                String htmlContent = emailTemplateService.buildVerificationEmailTemplate(userName, verificationLink);
+                sendHtmlEmail(to, subject, htmlContent);
+            } else {
+                String textContent = buildPlainTextVerificationContent(verificationLink);
+                sendPlainTextEmail(to, subject, textContent);
+            }
 
-            String body = String.format("""
-                Hello,
-                
-                Thank you for registering with RockRager Authentication!
-                
-                Please verify your email address by clicking the link below:
-                %s
-                
-                This link will expire in 24 hours.
-                
-                If you didn't create an account, please ignore this email.
-                
-                Best regards,
-                RockRager Team
-                """, verificationLink);
-
-            log.info("📧 Email body created, length: {} characters", body.length());
-
-            sendEmail(to, subject, body);
-
-            log.info("📧 ========== sendVerificationEmail COMPLETED SUCCESSFULLY ==========");
-
+            log.info("Verification email sent successfully to: {}", to);
         } catch (Exception e) {
-            log.error("📧 ❌ EXCEPTION in sendVerificationEmail: {}", e.getMessage(), e);
-            throw e;
+            log.error("Failed to send verification email to: {}", to, e);
+            throw new RuntimeException("Unable to send verification email", e);
         }
     }
 
-    public void sendPasswordResetEmail(String to, String token) {
-        log.info("========== 🔐 EMAIL SERVICE: sendPasswordResetEmail CALLED ==========");
-        log.info("🔐 Method entered at: {}", System.currentTimeMillis());
-        log.info("🔐 Recipient: {}", to);
-        log.info("🔐 Token: {}", token);
+    @Async
+    public void sendPasswordResetEmail(String to, String userName, String token) {
+        log.info("Sending password reset email to: {}", to);
 
         try {
-            String subject = "Reset Your Password - RockRager Authentication";
             String resetLink = baseUrl + "/api/auth/reset-password?token=" + token;
+            String subject = "Reset Your Password - RockRager Authentication";
 
-            log.info("🔐 Base URL: {}", baseUrl);
-            log.info("🔐 Reset link: {}", resetLink);
-            log.info("🔐 Subject: {}", subject);
+            if (htmlEmailEnabled) {
+                String htmlContent = emailTemplateService.buildPasswordResetEmailTemplate(userName, resetLink);
+                sendHtmlEmail(to, subject, htmlContent);
+            } else {
+                String textContent = buildPlainTextResetContent(resetLink);
+                sendPlainTextEmail(to, subject, textContent);
+            }
 
-            String body = String.format("""
-                Hello,
-                
-                We received a request to reset your password.
-                
-                Click the link below to reset your password:
-                %s
-                
-                This link will expire in 1 hour.
-                
-                If you didn't request a password reset, please ignore this email or contact support.
-                
-                Best regards,
-                RockRager Team
-                """, resetLink);
-
-            log.info("🔐 Email body created, length: {} characters", body.length());
-
-            sendEmail(to, subject, body);
-
-            log.info("🔐 ========== sendPasswordResetEmail COMPLETED SUCCESSFULLY ==========");
-
+            log.info("Password reset email sent successfully to: {}", to);
         } catch (Exception e) {
-            log.error("🔐 ❌ EXCEPTION in sendPasswordResetEmail: {}", e.getMessage(), e);
-            throw e;
+            log.error("Failed to send password reset email to: {}", to, e);
+            throw new RuntimeException("Unable to send password reset email", e);
         }
     }
 
-    private void sendEmail(String to, String subject, String body) {
-        log.info("========== 📨 SEND EMAIL METHOD ==========");
-        log.info("📨 Entering sendEmail at: {}", System.currentTimeMillis());
-        log.info("📨 From address (configured): {}", fromAddress);
-        log.info("📨 SMTP Username: {}", smtpUsername);
-        log.info("📨 To: {}", to);
-        log.info("📨 Subject: {}", subject);
-
-        // Log email configuration details (without exposing full password)
-        log.info("📨 Mail sender class: {}", mailSender.getClass().getName());
+    @Async
+    public void sendWelcomeEmail(String to, String userName) {
+        log.info("Sending welcome email to: {}", to);
 
         try {
-            log.info("📨 Creating SimpleMailMessage object...");
-            SimpleMailMessage message = new SimpleMailMessage();
+            String subject = "Welcome to RockRager Authentication!";
 
-            log.info("📨 Setting message properties...");
+            if (htmlEmailEnabled) {
+                String htmlContent = emailTemplateService.buildWelcomeEmailTemplate(userName);
+                sendHtmlEmail(to, subject, htmlContent);
+            } else {
+                String textContent = buildPlainTextWelcomeContent(userName);
+                sendPlainTextEmail(to, subject, textContent);
+            }
+
+            log.info("Welcome email sent successfully to: {}", to);
+        } catch (Exception e) {
+            log.error("Failed to send welcome email to: {}", to, e);
+            // Don't throw for welcome emails - they're not critical
+        }
+    }
+
+    private void sendHtmlEmail(String to, String subject, String htmlBody) {
+        try {
+            MimeMessage mimeMessage = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
+
+            helper.setTo(to);
+            helper.setSubject(subject);
+            helper.setText(htmlBody, true);
+
+            // FIXED: Safe way to set from address without encoding issues
+            setFromAddressSafe(helper);
+
+            mailSender.send(mimeMessage);
+
+            log.debug("HTML email sent - To: {}, Subject: {}", to, subject);
+        } catch (MessagingException | MailException e) {
+            log.error("HTML email delivery failed - To: {}", to, e);
+            throw new RuntimeException("Failed to send HTML email", e);
+        }
+    }
+
+    private void sendPlainTextEmail(String to, String subject, String body) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
             message.setTo(to);
             message.setSubject(subject);
             message.setText(body);
-            message.setFrom(fromAddress);
 
-            log.info("📨 Message created successfully");
-            log.info("📨 Message details - From: {}, To: {}, Subject: {}",
-                    message.getFrom(),
-                    String.join(",", message.getTo()),
-                    message.getSubject());
+            // FIXED: Safe way to set from address
+            message.setFrom(getSafeFromAddress());
 
-            log.info("📨 Attempting to send email via mailSender.send()...");
-            log.info("📨 This is the CRITICAL MOMENT - checking SMTP connection...");
-
-            // Record start time
-            long startTime = System.currentTimeMillis();
-
-            // ACTUAL EMAIL SENDING
             mailSender.send(message);
 
-            // Record end time
-            long endTime = System.currentTimeMillis();
-            long duration = endTime - startTime;
-
-            log.info("✅✅✅ EMAIL SENT SUCCESSFULLY! ✅✅✅");
-            log.info("✅ Time taken to send: {} ms", duration);
-            log.info("✅ Recipient: {}", to);
-            log.info("✅ From: {}", fromAddress);
-            log.info("✅ Subject: {}", subject);
-            log.info("✅ Check inbox/spam folder for: {}", to);
-
+            log.debug("Plain text email sent - To: {}, Subject: {}", to, subject);
         } catch (MailException e) {
-            log.error("❌❌❌ MAIL EXCEPTION CAUGHT ❌❌❌");
-            log.error("❌ Exception type: {}", e.getClass().getName());
-            log.error("❌ Exception message: {}", e.getMessage());
-            log.error("❌ Stack trace:", e);
+            log.error("Plain text email delivery failed - To: {}", to, e);
+            throw new RuntimeException("Failed to send plain text email", e);
+        }
+    }
 
-            // Check for specific SMTP errors
-            String errorMsg = e.getMessage();
-            if (errorMsg != null) {
-                if (errorMsg.contains("Authentication")) {
-                    log.error("❌ AUTHENTICATION FAILED - Check MAIL_USERNAME and MAIL_PASSWORD");
-                } else if (errorMsg.contains("timed out") || errorMsg.contains("Timeout")) {
-                    log.error("❌ CONNECTION TIMEOUT - Check MAIL_HOST and MAIL_PORT");
-                } else if (errorMsg.contains("550")) {
-                    log.error("❌ SENDER REJECTED - Check if sender '{}' is verified in Brevo", fromAddress);
-                } else if (errorMsg.contains("501")) {
-                    log.error("❌ SYNTAX ERROR - Check email format");
-                } else if (errorMsg.contains("554")) {
-                    log.error("❌ TRANSACTION FAILED - Sender may not be verified");
-                }
-            }
+    /**
+     * Safely set the from address without encoding errors
+     */
+    private void setFromAddressSafe(MimeMessageHelper helper) throws MessagingException {
+        String safeFromAddress = getSafeFromAddress();
 
-            throw new RuntimeException("Failed to send email: " + e.getMessage(), e);
-
-        } catch (Exception e) {
-            log.error("💥💥💥 UNEXPECTED NON-MAIL EXCEPTION 💥💥💥");
-            log.error("💥 Exception type: {}", e.getClass().getName());
-            log.error("💥 Exception message: {}", e.getMessage());
-            log.error("💥 Stack trace:", e);
-            throw new RuntimeException("Unexpected error sending email: " + e.getMessage(), e);
+        if (safeFromAddress == null || safeFromAddress.trim().isEmpty()) {
+            log.warn("No from address configured, using default");
+            helper.setFrom("noreply@localhost");
+            return;
         }
 
-        log.info("📨 ========== SEND EMAIL METHOD COMPLETED ==========");
+        // If we have a display name and it's not empty, try to use it safely
+        if (fromName != null && !fromName.trim().isEmpty() && !fromName.equals(fromAddress)) {
+            try {
+                // Try with display name (may still throw exception)
+                helper.setFrom(safeFromAddress, sanitizeDisplayName(fromName));
+            } catch (Exception e) {
+                // Fallback: just use email address without display name
+                log.warn("Failed to set from name, using email only: {}", e.getMessage());
+                helper.setFrom(safeFromAddress);
+            }
+        } else {
+            // Just use email address
+            helper.setFrom(safeFromAddress);
+        }
+    }
+
+    /**
+     * Get safe from address (always just the email part)
+     */
+    private String getSafeFromAddress() {
+        String address = fromAddress;
+
+        // If fromAddress is empty, try to use a default
+        if (address == null || address.trim().isEmpty()) {
+            log.warn("No mail.from.address configured, using default");
+            return "noreply@rockrager.com";
+        }
+
+        // Extract just the email address if there's a display name format
+        // Example: "Name <email@domain.com>" -> "email@domain.com"
+        if (address.contains("<") && address.contains(">")) {
+            int start = address.indexOf("<");
+            int end = address.indexOf(">");
+            if (start < end && start > 0) {
+                address = address.substring(start + 1, end);
+            }
+        }
+
+        return address.trim();
+    }
+
+    /**
+     * Sanitize display name by removing special characters
+     */
+    private String sanitizeDisplayName(String name) {
+        if (name == null) return "";
+        // Remove any problematic characters
+        return name.replaceAll("[<>\\[\\]()]", "").trim();
+    }
+
+    private String buildPlainTextVerificationContent(String verificationLink) {
+        return String.format("""
+            Please verify your email address by clicking the link below:
+            %s
+            
+            This link will expire in 24 hours.
+            
+            If you didn't create an account, please ignore this email.
+            
+            Best regards,
+            RockRager Team
+            """, verificationLink);
+    }
+
+    private String buildPlainTextResetContent(String resetLink) {
+        return String.format("""
+            Click the link below to reset your password:
+            %s
+            
+            This link will expire in 1 hour.
+            
+            If you didn't request a password reset, please ignore this email.
+            
+            Best regards,
+            RockRager Team
+            """, resetLink);
+    }
+
+    private String buildPlainTextWelcomeContent(String userName) {
+        return String.format("""
+            Hello %s,
+            
+            Welcome to RockRager Authentication!
+            
+            Your account has been successfully verified.
+            
+            You can now log in to your account.
+            
+            Best regards,
+            RockRager Team
+            """, userName);
     }
 }
