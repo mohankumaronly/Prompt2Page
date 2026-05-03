@@ -3,6 +3,7 @@ package com.rockrager.authentication.service;
 import com.rockrager.authentication.dto.request.LoginRequest;
 import com.rockrager.authentication.dto.request.RegisterRequest;
 import com.rockrager.authentication.dto.response.AuthResponse;
+import com.rockrager.authentication.dto.response.LoginInitiateResponse;
 import com.rockrager.authentication.entity.EmailVerificationToken;
 import com.rockrager.authentication.entity.PasswordResetToken;
 import com.rockrager.authentication.entity.RefreshToken;
@@ -35,6 +36,8 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final EmailService emailService;
+    private final OtpService otpService;
+    private final DeviceInfoService deviceInfoService;
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
@@ -291,5 +294,175 @@ public class AuthService {
         log.info("Password reset successful for user: {}", user.getEmail());
 
         return "Password reset successful. Please login with your new password.";
+    }
+
+    @Transactional
+    public LoginInitiateResponse initiateLogin(LoginRequest request) {
+        log.info("Initiating login for email: {}", request.getEmail());
+
+        // Find user
+        User user = userRepository.findByEmail(request.getEmail())
+                .orElseThrow(() -> new RuntimeException("Invalid email or password"));
+
+        // Validate password
+        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            throw new RuntimeException("Invalid email or password");
+        }
+
+        // Check if email is verified
+        if (!user.isEmailVerified()) {
+            throw new RuntimeException("Please verify your email first. Check your inbox for verification link.");
+        }
+
+        // Generate unique session ID for this login attempt
+        String sessionId = UUID.randomUUID().toString();
+
+        // Generate and send OTP
+        String otpCode = otpService.generateAndSendOtp(
+                user,
+                sessionId,
+                request.getDeviceInfo(),
+                request.getIpAddress()
+        );
+
+        log.info("OTP sent to user: {} for session: {}", user.getEmail(), sessionId);
+
+        // Mask email for response
+        String maskedEmail = maskEmail(user.getEmail());
+
+        return LoginInitiateResponse.builder()
+                .sessionId(sessionId)
+                .otpRequired(true)
+                .message("OTP sent to your email address")
+                .otpSentTo(maskedEmail)
+                .expiresIn((long) otpService.getOtpExpirySeconds())  // Cast int to Long
+                .build();
+    }
+
+    @Transactional
+    public AuthResponse verifyOtpAndLogin(com.rockrager.authentication.dto.request.OtpVerificationRequest request) {
+        log.info("Verifying OTP for session: {}", request.getSessionId());
+
+        // Validate OTP
+        boolean isValid = otpService.validateOtp(request.getSessionId(), request.getOtpCode());
+
+        if (!isValid) {
+            throw new RuntimeException("Invalid or expired OTP. Please try again.");
+        }
+
+        // Get the OTP record to find the user
+        com.rockrager.authentication.entity.OtpCode otpRecord = otpService.getOtpRecord(request.getSessionId())
+                .orElseThrow(() -> new RuntimeException("Session not found"));
+
+        User user = otpRecord.getUser();
+
+        // Update last login information
+        user.setLastLoginAt(LocalDateTime.now());
+        user.setLastLoginIp(otpRecord.getIpAddress());
+        user.setLastLoginDevice(otpRecord.getDeviceInfo());
+
+        // Get location from IP
+        try {
+            String location = deviceInfoService.getLocationFromIp(otpRecord.getIpAddress());
+            user.setLastLoginLocation(location);
+        } catch (Exception e) {
+            log.warn("Could not get location for IP: {}", otpRecord.getIpAddress());
+            user.setLastLoginLocation("Unknown");
+        }
+
+        userRepository.save(user);
+
+        // Generate tokens
+        String accessToken = jwtService.generateAccessToken(user.getEmail());
+        String refreshToken = jwtService.generateRefreshToken(user.getEmail());
+
+        // Save refresh token
+        refreshTokenRepository.deleteByUser(user);
+        RefreshToken refreshTokenEntity = RefreshToken.builder()
+                .user(user)
+                .token(refreshToken)
+                .expiresAt(LocalDateTime.now().plusDays(7))
+                .revoked(false)
+                .build();
+        refreshTokenRepository.save(refreshTokenEntity);
+
+        // Send login notification email
+        try {
+            sendLoginNotificationEmail(user, otpRecord);
+        } catch (Exception e) {
+            log.error("Failed to send login notification email to: {}", user.getEmail(), e);
+            // Don't throw - login is still successful
+        }
+
+        // Clean up used OTP
+        otpService.cleanupExpiredOtps(user);
+
+        log.info("User logged in successfully: {} from IP: {}", user.getEmail(), otpRecord.getIpAddress());
+
+        return AuthResponse.builder()
+                .accessToken(accessToken)
+                .refreshToken(refreshToken)
+                .message("Login successful")
+                .build();
+    }
+
+    private void sendLoginNotificationEmail(User user, com.rockrager.authentication.entity.OtpCode otpRecord) {
+        String subject = "New Login Detected - RockRager Authentication";
+
+        String deviceInfo = otpRecord.getDeviceInfo() != null ? otpRecord.getDeviceInfo() : "Unknown Device";
+        String ipAddress = otpRecord.getIpAddress() != null ? otpRecord.getIpAddress() : "Unknown IP";
+        String location = user.getLastLoginLocation() != null ? user.getLastLoginLocation() : "Unknown Location";
+        String loginTime = LocalDateTime.now().toString();
+
+        String body = String.format("""
+        Hello %s %s,
+        
+        We detected a new login to your account.
+        
+        Login Details:
+        • Time: %s
+        • IP Address: %s
+        • Location: %s
+        • Device: %s
+        
+        If this was you, you can ignore this email.
+        
+        If this wasn't you, please reset your password immediately and contact support.
+        
+        Best regards,
+        RockRager Team
+        """,
+                user.getFirstName(),
+                user.getLastName(),
+                loginTime,
+                ipAddress,
+                location,
+                deviceInfo
+        );
+
+        // Send email (you can use HTML template here)
+        try {
+            // For now using simple email, you can enhance with HTML template
+            emailService.sendLoginNotificationEmail(user.getEmail(), user.getFirstName(), subject, body);
+        } catch (Exception e) {
+            log.error("Failed to send login notification", e);
+            throw e;
+        }
+    }
+
+    private String maskEmail(String email) {
+        if (email == null || !email.contains("@")) {
+            return email;
+        }
+        String[] parts = email.split("@");
+        String localPart = parts[0];
+        String domain = parts[1];
+
+        if (localPart.length() <= 2) {
+            return "*" + "@" + domain;
+        }
+
+        String maskedLocal = localPart.substring(0, 2) + "***" + localPart.substring(localPart.length() - 1);
+        return maskedLocal + "@" + domain;
     }
 }

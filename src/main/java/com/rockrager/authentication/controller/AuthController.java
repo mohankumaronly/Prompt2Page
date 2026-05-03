@@ -2,6 +2,7 @@ package com.rockrager.authentication.controller;
 
 import com.rockrager.authentication.dto.request.*;
 import com.rockrager.authentication.dto.response.AuthResponse;
+import com.rockrager.authentication.dto.response.LoginInitiateResponse;
 import com.rockrager.authentication.service.AuthService;
 
 import jakarta.servlet.http.Cookie;
@@ -47,11 +48,61 @@ public class AuthController {
         // Set refresh token as HTTP-only cookie
         Cookie refreshTokenCookie = new Cookie("refreshToken", authResponse.getRefreshToken());
         refreshTokenCookie.setHttpOnly(true);
-        refreshTokenCookie.setSecure(cookieSecure); // true in production (HTTPS), false in development
+        refreshTokenCookie.setSecure(cookieSecure);
         refreshTokenCookie.setPath("/api/auth");
         refreshTokenCookie.setMaxAge(refreshTokenMaxAge);
         refreshTokenCookie.setAttribute("SameSite", cookieSameSite);
         response.addCookie(refreshTokenCookie);
+
+        // Remove refreshToken from response body for security
+        authResponse.setRefreshToken(null);
+
+        return ResponseEntity.ok(authResponse);
+    }
+
+    // NEW ENDPOINT - Initiate Login (Step 1)
+    @PostMapping("/login/initiate")
+    public ResponseEntity<LoginInitiateResponse> initiateLogin(
+            @Valid @RequestBody LoginRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        // Capture device info and IP from request
+        String userAgent = httpRequest.getHeader("User-Agent");
+        String clientIp = getClientIpAddress(httpRequest);
+
+        // Set device info if not already provided
+        if (request.getDeviceInfo() == null) {
+            request.setDeviceInfo(userAgent);
+        }
+        if (request.getIpAddress() == null) {
+            request.setIpAddress(clientIp);
+        }
+        if (request.getUserAgent() == null) {
+            request.setUserAgent(userAgent);
+        }
+
+        LoginInitiateResponse response = authService.initiateLogin(request);
+        return ResponseEntity.ok(response);
+    }
+
+    // NEW ENDPOINT - Verify OTP and Complete Login (Step 2)
+    @PostMapping("/login/verify")
+    public ResponseEntity<AuthResponse> verifyOtpAndLogin(
+            @Valid @RequestBody OtpVerificationRequest request,
+            HttpServletResponse response
+    ) {
+        AuthResponse authResponse = authService.verifyOtpAndLogin(request);
+
+        // Set refresh token as HTTP-only cookie
+        if (authResponse.getRefreshToken() != null) {
+            Cookie refreshTokenCookie = new Cookie("refreshToken", authResponse.getRefreshToken());
+            refreshTokenCookie.setHttpOnly(true);
+            refreshTokenCookie.setSecure(cookieSecure);
+            refreshTokenCookie.setPath("/api/auth");
+            refreshTokenCookie.setMaxAge(refreshTokenMaxAge);
+            refreshTokenCookie.setAttribute("SameSite", cookieSameSite);
+            response.addCookie(refreshTokenCookie);
+        }
 
         // Remove refreshToken from response body for security
         authResponse.setRefreshToken(null);
@@ -160,5 +211,30 @@ public class AuthController {
             }
         }
         return null;
+    }
+
+    // Helper method to get client IP address
+    private String getClientIpAddress(HttpServletRequest request) {
+        String ipAddress = request.getHeader("X-Forwarded-For");
+        if (ipAddress == null || ipAddress.isEmpty() || "unknown".equalsIgnoreCase(ipAddress)) {
+            ipAddress = request.getHeader("Proxy-Client-IP");
+        }
+        if (ipAddress == null || ipAddress.isEmpty() || "unknown".equalsIgnoreCase(ipAddress)) {
+            ipAddress = request.getHeader("WL-Proxy-Client-IP");
+        }
+        if (ipAddress == null || ipAddress.isEmpty() || "unknown".equalsIgnoreCase(ipAddress)) {
+            ipAddress = request.getHeader("HTTP_CLIENT_IP");
+        }
+        if (ipAddress == null || ipAddress.isEmpty() || "unknown".equalsIgnoreCase(ipAddress)) {
+            ipAddress = request.getHeader("HTTP_X_FORWARDED_FOR");
+        }
+        if (ipAddress == null || ipAddress.isEmpty() || "unknown".equalsIgnoreCase(ipAddress)) {
+            ipAddress = request.getRemoteAddr();
+        }
+        // For multiple IPs (X-Forwarded-For can have multiple), take the first one
+        if (ipAddress != null && ipAddress.contains(",")) {
+            ipAddress = ipAddress.split(",")[0].trim();
+        }
+        return ipAddress;
     }
 }

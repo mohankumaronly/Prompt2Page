@@ -37,6 +37,19 @@ public class User {
     @Column(nullable = false)
     private String role = "USER";
 
+    // OTP Related Fields
+    @Column(nullable = false)
+    private boolean otpEnabled = true;  // Enable OTP by default for all users
+
+    // Last Login Tracking Fields
+    private LocalDateTime lastLoginAt;
+
+    private String lastLoginIp;
+
+    private String lastLoginDevice;
+
+    private String lastLoginLocation;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

@@ -244,4 +244,61 @@ public class EmailService {
             RockRager Team
             """, userName);
     }
+
+    @Async
+    public void sendOtpEmail(String to, String userName, String otpCode, int expiryMinutes) {
+        log.info("Sending OTP email to: {}", to);
+
+        try {
+            String subject = "Your Login OTP - RockRager Authentication";
+
+            if (htmlEmailEnabled) {
+                String htmlContent = emailTemplateService.buildOtpEmailTemplate(userName, otpCode, expiryMinutes);
+                sendHtmlEmail(to, subject, htmlContent);
+            } else {
+                String textContent = buildPlainTextOtpContent(otpCode, expiryMinutes);
+                sendPlainTextEmail(to, subject, textContent);
+            }
+
+            log.info("OTP email sent successfully to: {}", to);
+        } catch (Exception e) {
+            log.error("Failed to send OTP email to: {}", to, e);
+            throw new RuntimeException("Unable to send OTP email", e);
+        }
+    }
+
+    private String buildPlainTextOtpContent(String otpCode, int expiryMinutes) {
+        return String.format("""
+        Hello,
+        
+        Your login OTP code is: %s
+        
+        This code will expire in %d minutes.
+        
+        Please enter this code to complete your login.
+        
+        If you didn't attempt to login, please ignore this email and secure your account.
+        
+        Best regards,
+        RockRager Team
+        """, otpCode, expiryMinutes);
+    }
+
+    @Async
+    public void sendLoginNotificationEmail(String to, String userName, String subject, String body) {
+        log.info("Sending login notification email to: {}", to);
+
+        try {
+            if (htmlEmailEnabled) {
+                String htmlContent = emailTemplateService.buildLoginNotificationTemplate(userName, body);
+                sendHtmlEmail(to, subject, htmlContent);
+            } else {
+                sendPlainTextEmail(to, subject, body);
+            }
+            log.info("Login notification email sent successfully to: {}", to);
+        } catch (Exception e) {
+            log.error("Failed to send login notification email to: {}", to, e);
+            // Don't throw - notification is not critical
+        }
+    }
 }

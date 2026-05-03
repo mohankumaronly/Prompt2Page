@@ -39,6 +39,45 @@ public class EmailTemplateService {
         }
     }
 
+    // NEW METHOD - Add this for OTP emails
+    public String buildOtpEmailTemplate(String userName, String otpCode, int expiryMinutes) {
+        try {
+            return templateBuilder.buildOtpEmail(userName, otpCode, expiryMinutes);
+        } catch (Exception e) {
+            log.error("Failed to build OTP email template for user: {}", userName, e);
+            return buildFallbackOtpTemplate(otpCode, expiryMinutes);
+        }
+    }
+
+    // NEW FALLBACK METHOD - For OTP
+    private String buildFallbackOtpTemplate(String otpCode, int expiryMinutes) {
+        return String.format("""
+            <html>
+            <head>
+                <style>
+                    body { font-family: Arial, sans-serif; line-height: 1.6; }
+                    .otp-code { font-size: 32px; font-weight: bold; color: #4F46E5; padding: 10px; background: #F3F4F6; display: inline-block; letter-spacing: 5px; }
+                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h2>Your Login OTP</h2>
+                    <p>Hello,</p>
+                    <p>Your login OTP code is:</p>
+                    <div class="otp-code">%s</div>
+                    <p>This code will expire in <strong>%d minutes</strong>.</p>
+                    <p>Please enter this code to complete your login.</p>
+                    <hr>
+                    <p style="color: #666; font-size: 12px;">If you didn't attempt to login, please ignore this email and secure your account.</p>
+                    <p style="color: #666; font-size: 12px;">Best regards,<br>RockRager Team</p>
+                </div>
+            </body>
+            </html>
+            """, otpCode, expiryMinutes);
+    }
+
+    // Existing fallback methods
     private String buildFallbackVerificationTemplate(String verificationLink) {
         return String.format("""
             <html>
@@ -78,5 +117,18 @@ public class EmailTemplateService {
             </body>
             </html>
             """, userName);
+    }
+
+    public String buildLoginNotificationTemplate(String userName, String notificationBody) {
+        return String.format("""
+        <html>
+        <body>
+            <h2>New Login Detected</h2>
+            <p>Hello %s,</p>
+            <pre>%s</pre>
+            <p>Best regards,<br>RockRager Team</p>
+        </body>
+        </html>
+        """, userName, notificationBody);
     }
 }

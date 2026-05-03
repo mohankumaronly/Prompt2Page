@@ -44,9 +44,21 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/api/auth/**",
+                                // Auth endpoints
+                                "/api/auth/register",
+                                "/api/auth/login",
+                                "/api/auth/login/initiate",     // OTP Step 1
+                                "/api/auth/login/verify",       // OTP Step 2
+                                "/api/auth/verify-email",
+                                "/api/auth/forgot-password",
+                                "/api/auth/reset-password",
+                                "/api/auth/refresh",
+                                "/api/auth/logout",
+
+                                // Test endpoints
                                 "/test",
 
+                                // Swagger UI
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/v3/api-docs/**",
