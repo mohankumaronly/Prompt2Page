@@ -34,7 +34,7 @@ public class AuthService {
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
-    private final EmailService emailService;  // Add this
+    private final EmailService emailService;
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
