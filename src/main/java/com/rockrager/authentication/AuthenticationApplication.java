@@ -9,12 +9,12 @@ public class AuthenticationApplication {
 
 	public static void main(String[] args) {
 
-		// Load .env file
+
 		Dotenv dotenv = Dotenv.configure()
 				.ignoreIfMissing()
 				.load();
 
-		// Set variables as system properties so Spring can read them
+
 		dotenv.entries().forEach(entry ->
 				System.setProperty(entry.getKey(), entry.getValue())
 		);

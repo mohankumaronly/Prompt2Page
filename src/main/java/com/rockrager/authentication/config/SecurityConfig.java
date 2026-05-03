@@ -47,8 +47,8 @@ public class SecurityConfig {
                                 // Auth endpoints
                                 "/api/auth/register",
                                 "/api/auth/login",
-                                "/api/auth/login/initiate",     // OTP Step 1
-                                "/api/auth/login/verify",       // OTP Step 2
+                                "/api/auth/login/initiate",
+                                "/api/auth/login/verify",
                                 "/api/auth/verify-email",
                                 "/api/auth/forgot-password",
                                 "/api/auth/reset-password",

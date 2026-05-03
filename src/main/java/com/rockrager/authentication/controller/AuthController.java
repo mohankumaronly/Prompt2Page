@@ -29,7 +29,7 @@ public class AuthController {
     private String cookieSameSite;
 
     @Value("${cookie.refresh-token-max-age:604800}")
-    private int refreshTokenMaxAge; // 7 days in seconds
+    private int refreshTokenMaxAge;
 
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(
