@@ -44,6 +44,8 @@ public class AuthService {
         }
 
         User user = User.builder()
+                .firstName(request.getFirstName())  // ADDED
+                .lastName(request.getLastName())    // ADDED
                 .email(request.getEmail())
                 .password(passwordEncoder.encode(request.getPassword()))
                 .emailVerified(false)
@@ -91,6 +93,7 @@ public class AuthService {
                 .message("User registered successfully. Please check your email for verification link.")
                 .build();
     }
+
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
