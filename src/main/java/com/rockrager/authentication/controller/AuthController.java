@@ -13,7 +13,10 @@ import lombok.RequiredArgsConstructor;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -236,5 +239,20 @@ public class AuthController {
             ipAddress = ipAddress.split(",")[0].trim();
         }
         return ipAddress;
+    }
+
+    @GetMapping("/auth/me")
+    public ResponseEntity<?> getCurrentUser(Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return ResponseEntity.status(401).body("Not authenticated");
+        }
+
+        org.springframework.security.core.userdetails.User user =
+                (org.springframework.security.core.userdetails.User) authentication.getPrincipal();
+
+        return ResponseEntity.ok(Map.of(
+                "email", user.getUsername(),
+                "authenticated", true
+        ));
     }
 }

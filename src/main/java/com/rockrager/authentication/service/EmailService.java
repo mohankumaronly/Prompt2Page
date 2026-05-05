@@ -96,28 +96,6 @@ public class EmailService {
             log.info("Welcome email sent successfully to: {}", to);
         } catch (Exception e) {
             log.error("Failed to send welcome email to: {}", to, e);
-            // Don't throw for welcome emails - they're not critical
-        }
-    }
-
-    private void sendHtmlEmail(String to, String subject, String htmlBody) {
-        try {
-            MimeMessage mimeMessage = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-
-            helper.setTo(to);
-            helper.setSubject(subject);
-            helper.setText(htmlBody, true);
-
-            // FIXED: Safe way to set from address without encoding issues
-            setFromAddressSafe(helper);
-
-            mailSender.send(mimeMessage);
-
-            log.debug("HTML email sent - To: {}, Subject: {}", to, subject);
-        } catch (MessagingException | MailException e) {
-            log.error("HTML email delivery failed - To: {}", to, e);
-            throw new RuntimeException("Failed to send HTML email", e);
         }
     }
 
@@ -127,12 +105,8 @@ public class EmailService {
             message.setTo(to);
             message.setSubject(subject);
             message.setText(body);
-
-            // FIXED: Safe way to set from address
             message.setFrom(getSafeFromAddress());
-
             mailSender.send(message);
-
             log.debug("Plain text email sent - To: {}, Subject: {}", to, subject);
         } catch (MailException e) {
             log.error("Plain text email delivery failed - To: {}", to, e);
@@ -140,9 +114,23 @@ public class EmailService {
         }
     }
 
-    /**
-     * Safely set the from address without encoding errors
-     */
+    // Public HTML email method
+    public void sendHtmlEmail(String to, String subject, String htmlBody) {
+        try {
+            MimeMessage mimeMessage = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
+            helper.setTo(to);
+            helper.setSubject(subject);
+            helper.setText(htmlBody, true);
+            setFromAddressSafe(helper);
+            mailSender.send(mimeMessage);
+            log.debug("HTML email sent - To: {}, Subject: {}", to, subject);
+        } catch (MessagingException | MailException e) {
+            log.error("HTML email delivery failed - To: {}", to, e);
+            throw new RuntimeException("Failed to send HTML email", e);
+        }
+    }
+
     private void setFromAddressSafe(MimeMessageHelper helper) throws MessagingException {
         String safeFromAddress = getSafeFromAddress();
 
@@ -152,36 +140,24 @@ public class EmailService {
             return;
         }
 
-        // If we have a display name and it's not empty, try to use it safely
         if (fromName != null && !fromName.trim().isEmpty() && !fromName.equals(fromAddress)) {
             try {
-                // Try with display name (may still throw exception)
                 helper.setFrom(safeFromAddress, sanitizeDisplayName(fromName));
             } catch (Exception e) {
-                // Fallback: just use email address without display name
                 log.warn("Failed to set from name, using email only: {}", e.getMessage());
                 helper.setFrom(safeFromAddress);
             }
         } else {
-            // Just use email address
             helper.setFrom(safeFromAddress);
         }
     }
 
-    /**
-     * Get safe from address (always just the email part)
-     */
     private String getSafeFromAddress() {
         String address = fromAddress;
-
-        // If fromAddress is empty, try to use a default
         if (address == null || address.trim().isEmpty()) {
             log.warn("No mail.from.address configured, using default");
             return "noreply@rockrager.com";
         }
-
-        // Extract just the email address if there's a display name format
-        // Example: "Name <email@domain.com>" -> "email@domain.com"
         if (address.contains("<") && address.contains(">")) {
             int start = address.indexOf("<");
             int end = address.indexOf(">");
@@ -189,16 +165,11 @@ public class EmailService {
                 address = address.substring(start + 1, end);
             }
         }
-
         return address.trim();
     }
 
-    /**
-     * Sanitize display name by removing special characters
-     */
     private String sanitizeDisplayName(String name) {
         if (name == null) return "";
-        // Remove any problematic characters
         return name.replaceAll("[<>\\[\\]()]", "").trim();
     }
 
@@ -298,7 +269,30 @@ public class EmailService {
             log.info("Login notification email sent successfully to: {}", to);
         } catch (Exception e) {
             log.error("Failed to send login notification email to: {}", to, e);
-            // Don't throw - notification is not critical
+        }
+    }
+
+    @Async
+    public void sendGoogleLoginEmail(String to, String userName, String htmlContent) {
+        log.info("Sending Google login email to: {}", to);
+        try {
+            String subject = "New Google Login Detected - RockRager Authentication";
+            sendHtmlEmail(to, subject, htmlContent);
+            log.info("Google login email sent successfully to: {}", to);
+        } catch (Exception e) {
+            log.error("Failed to send Google login email to: {}", to, e);
+        }
+    }
+
+    @Async
+    public void sendGoogleWelcomeEmail(String to, String userName, String htmlContent) {
+        log.info("Sending Google welcome email to: {}", to);
+        try {
+            String subject = "Welcome to RockRager Authentication! 🎉";
+            sendHtmlEmail(to, subject, htmlContent);
+            log.info("Google welcome email sent successfully to: {}", to);
+        } catch (Exception e) {
+            log.error("Failed to send Google welcome email to: {}", to, e);
         }
     }
 }

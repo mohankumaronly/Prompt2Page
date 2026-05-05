@@ -39,7 +39,7 @@ public class User {
 
     // OTP Related Fields
     @Column(nullable = false)
-    private boolean otpEnabled = true;  // Enable OTP by default for all users
+    private boolean otpEnabled = true;
 
     // Last Login Tracking Fields
     private LocalDateTime lastLoginAt;
@@ -50,6 +50,14 @@ public class User {
 
     private String lastLoginLocation;
 
+    // Google OAuth Fields
+    @Column(name = "google_id", unique = true)
+    private String googleId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "auth_provider", nullable = false)
+    private AuthProvider authProvider = AuthProvider.LOCAL;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;
@@ -58,6 +66,9 @@ public class User {
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
+        if (authProvider == null) {
+            authProvider = AuthProvider.LOCAL;
+        }
     }
 
     @PreUpdate

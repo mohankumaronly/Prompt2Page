@@ -27,4 +27,13 @@ public interface UserSessionRepository extends JpaRepository<UserSession, UUID> 
     void deactivateSession(@Param("sessionId") String sessionId, @Param("now") LocalDateTime now);
 
     long countByUserAndActiveTrue(User user);
+
+    // Add these methods for checking new devices and locations
+
+    @Query("SELECT COUNT(us) > 0 FROM UserSession us WHERE us.user = :user AND us.deviceInfo = :deviceInfo AND us.ipAddress = :ipAddress")
+    boolean existsByUserAndDeviceInfoAndIpAddress(@Param("user") User user, @Param("deviceInfo") String deviceInfo, @Param("ipAddress") String ipAddress);
+
+    @Query("SELECT COUNT(us) > 0 FROM UserSession us WHERE us.user = :user AND us.location = :location")
+    boolean existsByUserAndLocation(@Param("user") User user, @Param("location") String location);
+
 }

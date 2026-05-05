@@ -4,10 +4,7 @@ import com.rockrager.authentication.dto.request.LoginRequest;
 import com.rockrager.authentication.dto.request.RegisterRequest;
 import com.rockrager.authentication.dto.response.AuthResponse;
 import com.rockrager.authentication.dto.response.LoginInitiateResponse;
-import com.rockrager.authentication.entity.EmailVerificationToken;
-import com.rockrager.authentication.entity.PasswordResetToken;
-import com.rockrager.authentication.entity.RefreshToken;
-import com.rockrager.authentication.entity.User;
+import com.rockrager.authentication.entity.*;
 import com.rockrager.authentication.repository.EmailVerificationTokenRepository;
 import com.rockrager.authentication.repository.PasswordResetTokenRepository;
 import com.rockrager.authentication.repository.RefreshTokenRepository;
@@ -304,11 +301,25 @@ public class AuthService {
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new RuntimeException("Invalid email or password"));
 
+        // ***** ADD THIS GOOGLE CHECK HERE *****
+        // Check if user is a Google-only account (no password set)
+        if (user.getAuthProvider() == AuthProvider.GOOGLE && (user.getPassword() == null || user.getPassword().isEmpty())) {
+            throw new RuntimeException("This account uses Google login. Please sign in with Google.");
+        }
+
+        // If user has Google ID linked but also has password (hybrid account), they can continue
+        if (user.getGoogleId() != null && user.getAuthProvider() == AuthProvider.LOCAL) {
+            log.info("User with linked Google account logging in with password: {}", request.getEmail());
+            // Allow to continue with password login
+        }
+        // ***** END OF GOOGLE CHECK *****
+
         // Validate password
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             throw new RuntimeException("Invalid email or password");
         }
 
+        // Rest of your existing code...
         // Check if email is verified
         if (!user.isEmailVerified()) {
             throw new RuntimeException("Please verify your email first. Check your inbox for verification link.");
@@ -335,7 +346,7 @@ public class AuthService {
                 .otpRequired(true)
                 .message("OTP sent to your email address")
                 .otpSentTo(maskedEmail)
-                .expiresIn((long) otpService.getOtpExpirySeconds())  // Cast int to Long
+                .expiresIn((long) otpService.getOtpExpirySeconds())
                 .build();
     }
 
@@ -356,11 +367,19 @@ public class AuthService {
 
         User user = otpRecord.getUser();
 
+        // ***** ADD THIS CHECK HERE *****
+        // Skip OTP for Google users if they somehow got here (should not happen)
+        if (user.getAuthProvider() == AuthProvider.GOOGLE && (user.getPassword() == null || user.getPassword().isEmpty())) {
+            throw new RuntimeException("This account uses Google login. Please sign in with Google.");
+        }
+        // ***** END OF CHECK *****
+
         // Update last login information
         user.setLastLoginAt(LocalDateTime.now());
         user.setLastLoginIp(otpRecord.getIpAddress());
         user.setLastLoginDevice(otpRecord.getDeviceInfo());
 
+        // Rest of your existing code...
         // Get location from IP
         try {
             String location = deviceInfoService.getLocationFromIp(otpRecord.getIpAddress());

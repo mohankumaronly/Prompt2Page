@@ -1,20 +1,18 @@
 package com.rockrager.authentication.config;
 
 import com.rockrager.authentication.security.jwt.JwtAuthenticationFilter;
+import com.rockrager.authentication.security.oauth2.OAuth2LoginSuccessHandler;
+import com.rockrager.authentication.service.OAuth2UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
-
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -29,6 +27,8 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final OAuth2LoginSuccessHandler oAuth2LoginSuccessHandler;
+    private final OAuth2UserService oAuth2UserService;
 
     @Value("${cors.allowed.origins:http://localhost:5173,http://localhost:8080}")
     private String allowedOrigins;
@@ -55,6 +55,10 @@ public class SecurityConfig {
                                 "/api/auth/refresh",
                                 "/api/auth/logout",
 
+                                // OAuth2 endpoints
+                                "/oauth2/**",
+                                "/login/**",
+
                                 // Test endpoints
                                 "/test",
 
@@ -65,6 +69,12 @@ public class SecurityConfig {
                                 "/v3/api-docs"
                         ).permitAll()
                         .anyRequest().authenticated()
+                )
+                .oauth2Login(oauth2 -> oauth2
+                        .userInfoEndpoint(userInfo -> userInfo
+                                .userService(oAuth2UserService)
+                        )
+                        .successHandler(oAuth2LoginSuccessHandler)
                 )
                 .addFilterBefore(jwtAuthenticationFilter,
                         UsernamePasswordAuthenticationFilter.class);
