@@ -35,7 +35,7 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
     private final DeviceInfoService deviceInfoService;
     private final EmailService emailService;
 
-    @Value("${app.frontend.url:http://localhost:8080}")
+    @Value("${app.frontend.url:https://prompt2page.onrender.com}")
     private String frontendUrl;
 
     @Override
