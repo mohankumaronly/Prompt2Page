@@ -7,22 +7,30 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 
 @Configuration
+@EnableWebSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
 
@@ -30,7 +38,7 @@ public class SecurityConfig {
     private final OAuth2LoginSuccessHandler oAuth2LoginSuccessHandler;
     private final OAuth2UserService oAuth2UserService;
 
-    @Value("${cors.allowed.origins:http://localhost:5173,http://localhost:8080}")
+    @Value("${cors.allowed.origins:http://localhost:3000,http://localhost:8080}")
     private String allowedOrigins;
 
     @Bean
@@ -42,9 +50,11 @@ public class SecurityConfig {
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint(new RestAuthenticationEntryPoint())
+                )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                // Auth endpoints
                                 "/api/auth/register",
                                 "/api/auth/login",
                                 "/api/auth/login/initiate",
@@ -54,15 +64,9 @@ public class SecurityConfig {
                                 "/api/auth/reset-password",
                                 "/api/auth/refresh",
                                 "/api/auth/logout",
-
-                                // OAuth2 endpoints
                                 "/oauth2/**",
                                 "/login/**",
-
-                                // Test endpoints
                                 "/test",
-
-                                // Swagger UI
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/v3/api-docs/**",
@@ -97,28 +101,45 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-
-        // Split comma-separated origins from .env file
         List<String> origins = Arrays.asList(allowedOrigins.split(","));
         configuration.setAllowedOrigins(origins);
-
-        // Allow all HTTP methods
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-
-        // Allow all headers
         configuration.setAllowedHeaders(Arrays.asList("*"));
-
-        // Allow credentials (cookies)
         configuration.setAllowCredentials(true);
-
-        // Expose headers that frontend can access
         configuration.setExposedHeaders(Arrays.asList("Authorization", "Set-Cookie"));
-
-        // Max age of pre-flight request (1 hour)
         configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
+    }
+
+    // ✅ FIXED: Custom Authentication Entry Point for API requests
+    private static class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
+        @Override
+        public void commence(HttpServletRequest request, HttpServletResponse response,
+                             AuthenticationException authException) throws IOException {
+
+            String requestUri = request.getRequestURI();
+
+            // For API requests, return 401 JSON
+            if (requestUri.startsWith("/api/")) {
+                response.setStatus(HttpStatus.UNAUTHORIZED.value());
+                response.setContentType("application/json");
+                response.setCharacterEncoding("UTF-8");
+                response.getWriter().write("{\"message\": \"Unauthorized\", \"status\": 401, \"path\": \"" + requestUri + "\"}");
+            }
+            // For OAuth2 requests - DO NOT REDIRECT, let Spring Security handle it
+            else if (requestUri.startsWith("/oauth2/") || requestUri.startsWith("/login")) {
+                // Let Spring Security's OAuth2 login flow handle authentication
+                response.setStatus(HttpStatus.UNAUTHORIZED.value());
+            }
+            // For other requests, also return 401 JSON
+            else {
+                response.setStatus(HttpStatus.UNAUTHORIZED.value());
+                response.setContentType("application/json");
+                response.getWriter().write("{\"message\": \"Unauthorized\", \"status\": 401}");
+            }
+        }
     }
 }

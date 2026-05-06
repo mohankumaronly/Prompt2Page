@@ -24,11 +24,15 @@ public class JwtService {
     private long refreshTokenExpiration;
 
     private Key getSigningKey() {
-        return Keys.hmacShaKeyFor(secretKey.getBytes());
+        // ✅ Ensure secret key is long enough (at least 256 bits = 32 characters)
+        byte[] keyBytes = secretKey.getBytes();
+        if (keyBytes.length < 32) {
+            throw new IllegalArgumentException("JWT secret key must be at least 32 characters long");
+        }
+        return Keys.hmacShaKeyFor(keyBytes);
     }
 
     public String generateAccessToken(String email) {
-
         return Jwts.builder()
                 .setSubject(email)
                 .setIssuedAt(new Date())
@@ -38,7 +42,6 @@ public class JwtService {
     }
 
     public String generateRefreshToken(String email) {
-
         return Jwts.builder()
                 .setSubject(email)
                 .setIssuedAt(new Date())
@@ -57,7 +60,6 @@ public class JwtService {
     }
 
     private Claims extractAllClaims(String token) {
-
         return Jwts.parserBuilder()
                 .setSigningKey(getSigningKey())
                 .build()
@@ -66,14 +68,20 @@ public class JwtService {
     }
 
     public boolean isTokenValid(String token, String email) {
+        if (token == null || email == null) {
+            return false;
+        }
 
-        final String extractedEmail = extractEmail(token);
-
-        return extractedEmail.equals(email) && !isTokenExpired(token);
+        try {
+            final String extractedEmail = extractEmail(token);
+            return extractedEmail.equals(email) && !isTokenExpired(token);
+        } catch (Exception e) {
+            // Token parsing failed
+            return false;
+        }
     }
 
     private boolean isTokenExpired(String token) {
-
         return extractClaim(token, Claims::getExpiration).before(new Date());
     }
 }

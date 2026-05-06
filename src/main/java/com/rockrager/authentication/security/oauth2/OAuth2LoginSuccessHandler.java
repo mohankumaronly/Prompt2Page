@@ -127,7 +127,7 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
 
         log.info("Google login successful for user: {} from IP: {}", email, ipAddress);
 
-        response.sendRedirect(frontendUrl + "/dashboard.html");
+        response.sendRedirect(frontendUrl + "/auth/oauth2/callback?success=true");
     }
 
     private void sendWelcomeEmail(User user, String ipAddress, String location, String deviceInfo) {
@@ -253,7 +253,10 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
     private void setCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
         Cookie cookie = new Cookie(name, value);
         cookie.setHttpOnly(true);
-        cookie.setSecure(false);
+        boolean isSecure = System.getenv("COOKIE_SECURE") != null
+                ? Boolean.parseBoolean(System.getenv("COOKIE_SECURE"))
+                : false;
+        cookie.setSecure(isSecure);  // true for production (HTTPS), false for local (HTTP)
         cookie.setPath("/");
         cookie.setMaxAge(maxAgeSeconds);
         cookie.setAttribute("SameSite", "Lax");
