@@ -193,7 +193,7 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
         // ✅ Record successful attempt - resets rate limit
         recordSuccessfulAttempt(email);
 
-        response.sendRedirect(frontendUrl + "/auth/oauth2/callback?success=true");
+        response.sendRedirect(frontendUrl + "/auth/oauth2/callback?success=true&token=" + accessToken);
     }
 
     /**
