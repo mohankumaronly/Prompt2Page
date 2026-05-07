@@ -38,7 +38,7 @@ public class SecurityConfig {
     private final OAuth2LoginSuccessHandler oAuth2LoginSuccessHandler;
     private final OAuth2UserService oAuth2UserService;
 
-    @Value("${cors.allowed.origins:http://localhost:3000,http://localhost:8080}")
+    @Value("${cors.allowed.origins:http://localhost:3000,http://localhost:8080,https://prompt2page.onrender.com,https://prompt2page-frontend.vercel.app}")
     private String allowedOrigins;
 
     @Bean
