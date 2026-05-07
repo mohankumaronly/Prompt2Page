@@ -3,6 +3,7 @@ package com.rockrager.authentication.controller;
 import com.rockrager.authentication.dto.request.*;
 import com.rockrager.authentication.dto.response.AuthResponse;
 import com.rockrager.authentication.dto.response.LoginInitiateResponse;
+import com.rockrager.authentication.repository.UserRepository;
 import com.rockrager.authentication.service.AuthService;
 
 import jakarta.servlet.http.Cookie;
@@ -11,19 +12,23 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import com.rockrager.authentication.entity.User;
 
 import java.util.Map;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
 public class AuthController {
 
     private final AuthService authService;
+    private final UserRepository userRepository;
 
     @Value("${cookie.secure:false}")
     private boolean cookieSecure;
@@ -241,18 +246,36 @@ public class AuthController {
         return ipAddress;
     }
 
-    @GetMapping("/auth/me")
+    @GetMapping("/me")
     public ResponseEntity<?> getCurrentUser(Authentication authentication) {
+        log.info("GET /api/auth/me called");
+
         if (authentication == null || !authentication.isAuthenticated()) {
-            return ResponseEntity.status(401).body("Not authenticated");
+            return ResponseEntity.status(401).body(Map.of("message", "Not authenticated"));
         }
 
-        org.springframework.security.core.userdetails.User user =
-                (org.springframework.security.core.userdetails.User) authentication.getPrincipal();
+        String email = authentication.getName();
+        log.info("Fetching user details for: {}", email);
+
+        // Fetch full user from database
+        User user = userRepository.findByEmail(email).orElse(null);
+
+        if (user == null) {
+            return ResponseEntity.status(401).body(Map.of("message", "User not found"));
+        }
 
         return ResponseEntity.ok(Map.of(
-                "email", user.getUsername(),
-                "authenticated", true
+                "user", Map.of(
+                        "id", user.getId(),
+                        "firstName", user.getFirstName(),
+                        "lastName", user.getLastName(),
+                        "email", user.getEmail(),
+                        "emailVerified", user.isEmailVerified(),
+                        "createdAt", user.getCreatedAt(),
+                        "lastLoginAt", user.getLastLoginAt()
+                )
         ));
     }
+
+
 }

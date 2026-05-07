@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Service
@@ -30,40 +31,87 @@ public class OtpService {
 
     private final SecureRandom secureRandom = new SecureRandom();
 
+    // ✅ Track in-progress OTP generation by user email to prevent duplicates
+    private final ConcurrentHashMap<String, Boolean> processingMap = new ConcurrentHashMap<>();
+
     /**
-     * Generate and send OTP to user's email
+     * Generate and send OTP to user's email with duplicate prevention
      */
     @Transactional
     public String generateAndSendOtp(User user, String sessionId, String deviceInfo, String ipAddress) {
-        // Generate OTP code
-        String otpCode = generateOtpCode();
+        String userKey = user.getEmail();
 
-        // Calculate expiry time
-        LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(otpExpirationMinutes);
+        // ✅ Check if OTP generation is already in progress for this user
+        if (processingMap.putIfAbsent(userKey, Boolean.TRUE) != null) {
+            log.warn("⚠️ OTP generation already in progress for user: {}, waiting...", user.getEmail());
 
-        // Create OTP entity
-        OtpCode otp = OtpCode.builder()
-                .code(otpCode)
-                .user(user)
-                .sessionId(sessionId)
-                .deviceInfo(deviceInfo)
-                .ipAddress(ipAddress)
-                .expiresAt(expiresAt)
-                .used(false)
-                .build();
+            // Wait a bit and then check if OTP was created
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
 
-        otpCodeRepository.save(otp);
-
-        // Send OTP via email
-        try {
-            emailService.sendOtpEmail(user.getEmail(), user.getFirstName(), otpCode, otpExpirationMinutes);
-            log.info("OTP sent successfully to: {} for session: {}", user.getEmail(), sessionId);
-        } catch (Exception e) {
-            log.error("Failed to send OTP email to: {}", user.getEmail(), e);
-            throw new RuntimeException("Unable to send OTP. Please try again.");
+            // Check if OTP was already created for this session
+            Optional<OtpCode> existingOtp = otpCodeRepository.findBySessionId(sessionId);
+            if (existingOtp.isPresent() && !existingOtp.get().isUsed()) {
+                log.info("✅ Returning existing OTP for session: {}", sessionId);
+                return existingOtp.get().getCode();
+            }
+            processingMap.remove(userKey);
         }
 
-        return otpCode;
+        try {
+            // ✅ Check if OTP already exists for this session (duplicate prevention)
+            Optional<OtpCode> existingOtp = otpCodeRepository.findBySessionId(sessionId);
+            if (existingOtp.isPresent() && !existingOtp.get().isUsed()) {
+                log.info("✅ OTP already exists for session: {}, returning existing OTP", sessionId);
+                return existingOtp.get().getCode();
+            }
+
+            // Generate OTP code
+            String otpCode = generateOtpCode();
+
+            log.info("=========================================");
+            log.info("GENERATING OTP");
+            log.info("User: {}", user.getEmail());
+            log.info("OTP Code: {}", otpCode);
+            log.info("Session ID: {}", sessionId);
+            log.info("=========================================");
+
+            // Calculate expiry time
+            LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(otpExpirationMinutes);
+
+            // Create OTP entity
+            OtpCode otp = OtpCode.builder()
+                    .code(otpCode)
+                    .user(user)
+                    .sessionId(sessionId)
+                    .deviceInfo(deviceInfo)
+                    .ipAddress(ipAddress)
+                    .expiresAt(expiresAt)
+                    .used(false)
+                    .build();
+
+            otpCodeRepository.save(otp);
+            log.info("✅ OTP saved to database");
+
+            // Send OTP via email
+            try {
+                log.info("Attempting to send OTP email...");
+                emailService.sendOtpEmail(user.getEmail(), user.getFirstName(), otpCode, otpExpirationMinutes);
+                log.info("✅ OTP email sent successfully");
+            } catch (Exception e) {
+                log.error("❌ Failed to send OTP email to: {}", user.getEmail(), e);
+                throw new RuntimeException("Unable to send OTP. Please try again.");
+            }
+
+            log.info("=========================================");
+            return otpCode;
+        } finally {
+            // ✅ Remove from processing map after completion
+            processingMap.remove(userKey);
+        }
     }
 
     /**

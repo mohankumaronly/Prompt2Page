@@ -101,6 +101,7 @@ public class EmailService {
 
     private void sendPlainTextEmail(String to, String subject, String body) {
         try {
+            log.debug("Preparing plain text email - To: {}, Subject: {}", to, subject);
             SimpleMailMessage message = new SimpleMailMessage();
             message.setTo(to);
             message.setSubject(subject);
@@ -117,22 +118,28 @@ public class EmailService {
     // Public HTML email method
     public void sendHtmlEmail(String to, String subject, String htmlBody) {
         try {
+            log.debug("Preparing HTML email - To: {}, Subject: {}", to, subject);
+            log.debug("HTML Body length: {} characters", htmlBody != null ? htmlBody.length() : 0);
+
             MimeMessage mimeMessage = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
             helper.setTo(to);
             helper.setSubject(subject);
             helper.setText(htmlBody, true);
             setFromAddressSafe(helper);
+
+            log.debug("Sending HTML email via mailSender...");
             mailSender.send(mimeMessage);
             log.debug("HTML email sent - To: {}, Subject: {}", to, subject);
         } catch (MessagingException | MailException e) {
             log.error("HTML email delivery failed - To: {}", to, e);
-            throw new RuntimeException("Failed to send HTML email", e);
+            throw new RuntimeException("Failed to send HTML email: " + e.getMessage(), e);
         }
     }
 
     private void setFromAddressSafe(MimeMessageHelper helper) throws MessagingException {
         String safeFromAddress = getSafeFromAddress();
+        log.debug("Setting from address: {}", safeFromAddress);
 
         if (safeFromAddress == null || safeFromAddress.trim().isEmpty()) {
             log.warn("No from address configured, using default");
@@ -142,6 +149,7 @@ public class EmailService {
 
         if (fromName != null && !fromName.trim().isEmpty() && !fromName.equals(fromAddress)) {
             try {
+                log.debug("Setting from name: {}", fromName);
                 helper.setFrom(safeFromAddress, sanitizeDisplayName(fromName));
             } catch (Exception e) {
                 log.warn("Failed to set from name, using email only: {}", e.getMessage());
@@ -165,6 +173,7 @@ public class EmailService {
                 address = address.substring(start + 1, end);
             }
         }
+        log.debug("Safe from address: {}", address);
         return address.trim();
     }
 
@@ -218,23 +227,38 @@ public class EmailService {
 
     @Async
     public void sendOtpEmail(String to, String userName, String otpCode, int expiryMinutes) {
-        log.info("Sending OTP email to: {}", to);
+        log.info("=========================================");
+        log.info("SENDING OTP EMAIL");
+        log.info("To: {}", to);
+        log.info("User: {}", userName);
+        log.info("OTP Code: {}", otpCode);
+        log.info("Expiry Minutes: {}", expiryMinutes);
+        log.info("=========================================");
 
         try {
             String subject = "Your Login OTP - RockRager Authentication";
 
             if (htmlEmailEnabled) {
+                log.info("Building HTML OTP email template...");
                 String htmlContent = emailTemplateService.buildOtpEmailTemplate(userName, otpCode, expiryMinutes);
+                log.info("HTML template built, length: {} characters", htmlContent.length());
                 sendHtmlEmail(to, subject, htmlContent);
             } else {
+                log.info("Building plain text OTP content...");
                 String textContent = buildPlainTextOtpContent(otpCode, expiryMinutes);
                 sendPlainTextEmail(to, subject, textContent);
             }
 
-            log.info("OTP email sent successfully to: {}", to);
+            log.info("✅ OTP email sent successfully to: {}", to);
+            log.info("=========================================");
         } catch (Exception e) {
-            log.error("Failed to send OTP email to: {}", to, e);
-            throw new RuntimeException("Unable to send OTP email", e);
+            log.error("❌ Failed to send OTP email to: {}", to, e);
+            log.error("Error details: {}", e.getMessage());
+            if (e.getCause() != null) {
+                log.error("Cause: {}", e.getCause().getMessage());
+            }
+            log.info("=========================================");
+            throw new RuntimeException("Unable to send OTP email: " + e.getMessage(), e);
         }
     }
 

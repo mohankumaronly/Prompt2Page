@@ -44,6 +44,9 @@ public class User {
     // Last Login Tracking Fields
     private LocalDateTime lastLoginAt;
 
+    @Column(nullable = false)
+    private int loginCount = 0;
+
     private String lastLoginIp;
 
     private String lastLoginDevice;

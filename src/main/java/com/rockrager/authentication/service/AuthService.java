@@ -10,6 +10,7 @@ import com.rockrager.authentication.repository.PasswordResetTokenRepository;
 import com.rockrager.authentication.repository.RefreshTokenRepository;
 import com.rockrager.authentication.repository.UserRepository;
 import com.rockrager.authentication.security.jwt.JwtService;
+import com.rockrager.authentication.repository.OtpCodeRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,7 @@ public class AuthService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final EmailVerificationTokenRepository emailVerificationTokenRepository;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
+    private final OtpCodeRepository otpCodeRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final EmailService emailService;
@@ -38,6 +40,7 @@ public class AuthService {
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
+        log.info("Registering user with email: {}", request.getEmail());
 
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new RuntimeException("Email already registered");
@@ -50,9 +53,15 @@ public class AuthService {
                 .password(passwordEncoder.encode(request.getPassword()))
                 .emailVerified(false)
                 .role("USER")
+                .loginCount(0)                        // ✅ Required
+                .otpEnabled(true)                     // ✅ Required
+                .authProvider(AuthProvider.LOCAL)      // ✅ Required
+                .createdAt(LocalDateTime.now())        // Optional but recommended
+                .updatedAt(LocalDateTime.now())        // Optional but recommended
                 .build();
 
         User savedUser = userRepository.save(user);
+        log.info("User saved with ID: {}", savedUser.getId());
 
         String accessToken = jwtService.generateAccessToken(savedUser.getEmail());
         String refreshToken = jwtService.generateRefreshToken(savedUser.getEmail());
@@ -78,17 +87,15 @@ public class AuthService {
 
         emailVerificationTokenRepository.save(emailVerificationTokenEntity);
 
-        // Send verification email with user's name
         try {
             emailService.sendVerificationEmail(
                     savedUser.getEmail(),
-                    savedUser.getFirstName(),  // Pass user's first name for personalization
+                    savedUser.getFirstName(),
                     verificationToken
             );
-            log.info("Verification email sent to: {} ({})", savedUser.getEmail(), savedUser.getFirstName());
+            log.info("Verification email sent to: {}", savedUser.getEmail());
         } catch (Exception e) {
             log.error("Failed to send verification email to: {}", savedUser.getEmail(), e);
-            // Don't throw exception - registration still successful, just email failed
         }
 
         return AuthResponse.builder()
@@ -113,25 +120,57 @@ public class AuthService {
             throw new RuntimeException("Please verify your email first. Check your inbox for verification link.");
         }
 
-        String accessToken = jwtService.generateAccessToken(user.getEmail());
-        String refreshToken = jwtService.generateRefreshToken(user.getEmail());
+        // ✅ Check if user has logged in before
+        boolean hasLoggedInBefore = user.getLoginCount() > 0;
 
-        refreshTokenRepository.deleteByUser(user);
+        log.info("User login attempt for: {}, Login count: {}, hasLoggedInBefore: {}",
+                user.getEmail(), user.getLoginCount(), hasLoggedInBefore);
 
-        RefreshToken refreshTokenEntity = RefreshToken.builder()
-                .user(user)
-                .token(refreshToken)
-                .expiresAt(LocalDateTime.now().plusDays(7))
-                .revoked(false)
-                .build();
+        if (hasLoggedInBefore) {
+            // ✅ Existing user - ONLY return requiresOtp = true
+            // ❌ DO NOT generate OTP here! The frontend will call /login/initiate
+            log.info("Existing user - returning requiresOtp: true for: {}", user.getEmail());
 
-        refreshTokenRepository.save(refreshTokenEntity);
+            // Mask email for response
+            String maskedEmail = maskEmail(user.getEmail());
 
-        return AuthResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken)
-                .message("Login successful")
-                .build();
+            // ✅ Return requiresOtp = true to frontend (NO OTP generation!)
+            return AuthResponse.builder()
+                    .requiresOtp(true)
+                    .message("Please verify your identity")
+                    .email(maskedEmail)
+                    .build();
+        } else {
+            // ✅ First time login - generate tokens directly
+            log.info("First time login for user: {}", user.getEmail());
+
+            String accessToken = jwtService.generateAccessToken(user.getEmail());
+            String refreshToken = jwtService.generateRefreshToken(user.getEmail());
+
+            refreshTokenRepository.deleteByUser(user);
+
+            RefreshToken refreshTokenEntity = RefreshToken.builder()
+                    .user(user)
+                    .token(refreshToken)
+                    .expiresAt(LocalDateTime.now().plusDays(7))
+                    .revoked(false)
+                    .build();
+
+            refreshTokenRepository.save(refreshTokenEntity);
+
+            // ✅ Update login count after successful login
+            user.setLoginCount(user.getLoginCount() + 1);
+            user.setLastLoginAt(LocalDateTime.now());
+            user.setLastLoginDevice(request.getDeviceInfo());
+            user.setLastLoginIp(request.getIpAddress());
+            userRepository.save(user);
+
+            return AuthResponse.builder()
+                    .accessToken(accessToken)
+                    .refreshToken(refreshToken)
+                    .message("Login successful")
+                    .build();
+        }
     }
 
     @Transactional
@@ -295,51 +334,85 @@ public class AuthService {
 
     @Transactional
     public LoginInitiateResponse initiateLogin(LoginRequest request) {
-        log.info("Initiating login for email: {}", request.getEmail());
+        log.info("=========================================");
+        log.info("INITIATE LOGIN - START");
 
-        // Find user
-        User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new RuntimeException("Invalid email or password"));
+        // Store original email FIRST
+        String originalEmail = request.getEmail();
+        log.info("Original email for lookup: {}", originalEmail);
 
-        // ***** ADD THIS GOOGLE CHECK HERE *****
-        // Check if user is a Google-only account (no password set)
+        log.info("Request password length: {}", request.getPassword() != null ? request.getPassword().length() : 0);
+        log.info("Request device info: {}", request.getDeviceInfo());
+        log.info("Request IP address: {}", request.getIpAddress());
+        log.info("=========================================");
+
+        // Find user using ORIGINAL email (not masked)
+        log.info("Searching for user with email: {}", originalEmail);
+        User user = userRepository.findByEmail(originalEmail)
+                .orElseThrow(() -> {
+                    log.error("User not found with email: {}", originalEmail);
+                    return new RuntimeException("Invalid email or password");
+                });
+
+        log.info("✅ User found - ID: {}, Email: {}, Login Count: {}, Auth Provider: {}",
+                user.getId(), user.getEmail(), user.getLoginCount(), user.getAuthProvider());
+
+        // GOOGLE CHECK
         if (user.getAuthProvider() == AuthProvider.GOOGLE && (user.getPassword() == null || user.getPassword().isEmpty())) {
+            log.warn("User {} is Google-only account with no password", user.getEmail());
             throw new RuntimeException("This account uses Google login. Please sign in with Google.");
         }
 
-        // If user has Google ID linked but also has password (hybrid account), they can continue
         if (user.getGoogleId() != null && user.getAuthProvider() == AuthProvider.LOCAL) {
             log.info("User with linked Google account logging in with password: {}", request.getEmail());
-            // Allow to continue with password login
         }
-        // ***** END OF GOOGLE CHECK *****
 
         // Validate password
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+        log.info("Validating password...");
+        boolean passwordMatches = passwordEncoder.matches(request.getPassword(), user.getPassword());
+        log.info("Password matches: {}", passwordMatches);
+
+        if (!passwordMatches) {
+            log.error("❌ Password mismatch for user: {}", originalEmail);
             throw new RuntimeException("Invalid email or password");
         }
+        log.info("✅ Password validated successfully");
 
-        // Rest of your existing code...
         // Check if email is verified
+        log.info("Checking email verification status...");
         if (!user.isEmailVerified()) {
+            log.warn("User {} has not verified email", user.getEmail());
             throw new RuntimeException("Please verify your email first. Check your inbox for verification link.");
         }
+        log.info("✅ Email is verified");
+
+        // ✅ DELETE any existing unused OTPs for this user before generating new one
+        otpCodeRepository.deleteByUserAndUsedFalse(user);
+        log.info("✅ Cleared any existing unused OTPs for user: {}", user.getEmail());
 
         // Generate unique session ID for this login attempt
         String sessionId = UUID.randomUUID().toString();
+        log.info("Generated session ID: {}", sessionId);
 
         // Generate and send OTP
+        log.info("Generating and sending OTP...");
         String otpCode = otpService.generateAndSendOtp(
                 user,
                 sessionId,
                 request.getDeviceInfo(),
                 request.getIpAddress()
         );
+        log.info("✅ OTP generated and sent - Code: {} (for debugging)", otpCode);
 
         log.info("OTP sent to user: {} for session: {}", user.getEmail(), sessionId);
 
-        // Mask email for response
+        // Only mask email for RESPONSE, not for database lookup
         String maskedEmail = maskEmail(user.getEmail());
+        log.info("Masked email for response: {}", maskedEmail);
+
+        log.info("=========================================");
+        log.info("INITIATE LOGIN - SUCCESS");
+        log.info("=========================================");
 
         return LoginInitiateResponse.builder()
                 .sessionId(sessionId)
@@ -367,19 +440,19 @@ public class AuthService {
 
         User user = otpRecord.getUser();
 
-        // ***** ADD THIS CHECK HERE *****
         // Skip OTP for Google users if they somehow got here (should not happen)
         if (user.getAuthProvider() == AuthProvider.GOOGLE && (user.getPassword() == null || user.getPassword().isEmpty())) {
             throw new RuntimeException("This account uses Google login. Please sign in with Google.");
         }
-        // ***** END OF CHECK *****
 
         // Update last login information
         user.setLastLoginAt(LocalDateTime.now());
         user.setLastLoginIp(otpRecord.getIpAddress());
         user.setLastLoginDevice(otpRecord.getDeviceInfo());
 
-        // Rest of your existing code...
+        // ✅ Update login count for existing user
+        user.setLoginCount(user.getLoginCount() + 1);
+
         // Get location from IP
         try {
             String location = deviceInfoService.getLocationFromIp(otpRecord.getIpAddress());
