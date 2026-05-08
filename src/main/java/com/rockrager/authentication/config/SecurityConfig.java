@@ -38,7 +38,7 @@ public class SecurityConfig {
     private final OAuth2LoginSuccessHandler oAuth2LoginSuccessHandler;
     private final OAuth2UserService oAuth2UserService;
 
-    @Value("${cors.allowed.origins:http://localhost:3000,http://localhost:8080,https://prompt2page.onrender.com,https://prompt2page-frontend.vercel.app}")
+    @Value("${cors.allowed.origins:http://localhost:3000,http://localhost:8080,http://localhost:8081,https://prompt2page.onrender.com,https://prompt2page-frontend.vercel.app}")
     private String allowedOrigins;
 
     @Bean
@@ -114,7 +114,7 @@ public class SecurityConfig {
         return source;
     }
 
-    // ✅ FIXED: Custom Authentication Entry Point for API requests
+    // Custom Authentication Entry Point for API requests
     private static class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
         @Override
         public void commence(HttpServletRequest request, HttpServletResponse response,
@@ -129,12 +129,11 @@ public class SecurityConfig {
                 response.setCharacterEncoding("UTF-8");
                 response.getWriter().write("{\"message\": \"Unauthorized\", \"status\": 401, \"path\": \"" + requestUri + "\"}");
             }
-            // For OAuth2 requests - DO NOT REDIRECT, let Spring Security handle it
+            // For OAuth2 requests - let Spring Security handle it
             else if (requestUri.startsWith("/oauth2/") || requestUri.startsWith("/login")) {
-                // Let Spring Security's OAuth2 login flow handle authentication
                 response.setStatus(HttpStatus.UNAUTHORIZED.value());
             }
-            // For other requests, also return 401 JSON
+            // For other requests, return 401 JSON
             else {
                 response.setStatus(HttpStatus.UNAUTHORIZED.value());
                 response.setContentType("application/json");
