@@ -196,10 +196,6 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
         response.sendRedirect(frontendUrl + "/auth/oauth2/callback?success=true&token=" + accessToken);
     }
 
-    /**
-     * ✅ Check rate limit status
-     * Returns: 0 = allowed, 1 = soft limit (wait), 2 = blocked
-     */
     private int checkRateLimit(String email) {
         if (!rateLimitEnabled) return 0;
 
