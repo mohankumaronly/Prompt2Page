@@ -37,11 +37,9 @@ public class User {
     @Column(nullable = false)
     private String role = "USER";
 
-    // OTP Related Fields
     @Column(nullable = false)
     private boolean otpEnabled = true;
 
-    // Last Login Tracking Fields
     private LocalDateTime lastLoginAt;
 
     @Column(nullable = false)
@@ -53,7 +51,7 @@ public class User {
 
     private String lastLoginLocation;
 
-    // Google OAuth Fields
+
     @Column(name = "google_id", unique = true)
     private String googleId;
 

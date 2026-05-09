@@ -24,7 +24,6 @@ public class JwtService {
     private long refreshTokenExpiration;
 
     private Key getSigningKey() {
-        // ✅ Ensure secret key is long enough (at least 256 bits = 32 characters)
         byte[] keyBytes = secretKey.getBytes();
         if (keyBytes.length < 32) {
             throw new IllegalArgumentException("JWT secret key must be at least 32 characters long");
@@ -76,7 +75,6 @@ public class JwtService {
             final String extractedEmail = extractEmail(token);
             return extractedEmail.equals(email) && !isTokenExpired(token);
         } catch (Exception e) {
-            // Token parsing failed
             return false;
         }
     }

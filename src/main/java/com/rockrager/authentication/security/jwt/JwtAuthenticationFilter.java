@@ -29,7 +29,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtService jwtService;
     private final CustomUserDetailsService userDetailsService;
 
-    // ✅ Only skip PUBLIC auth endpoints
     private static final List<String> PUBLIC_AUTH_ENDPOINTS = Arrays.asList(
             "/api/auth/register",
             "/api/auth/login",
@@ -45,18 +44,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String servletPath = request.getServletPath();
 
-        // ✅ Only skip public endpoints, NOT all /api/auth
         if (PUBLIC_AUTH_ENDPOINTS.contains(servletPath)) {
-            log.debug("Skipping JWT filter for public endpoint: {}", servletPath);
             return true;
         }
 
-        // Also skip test endpoint
         if (servletPath.equals("/test")) {
             return true;
         }
 
-        // All other endpoints (including /api/auth/me) should be filtered
         return false;
     }
 
@@ -67,23 +62,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             FilterChain filterChain
     ) throws ServletException, IOException {
 
-        // Try to get token from Authorization header first (for mobile apps)
         String jwt = extractTokenFromHeader(request);
 
-        // If not in header, try to get from cookie (for web browsers)
         if (jwt == null) {
             jwt = extractTokenFromCookie(request);
         }
 
         if (jwt == null) {
-            log.debug("No JWT token found in request: {}", request.getServletPath());
             filterChain.doFilter(request, response);
             return;
         }
 
         try {
             final String userEmail = jwtService.extractEmail(jwt);
-            log.debug("Extracted email from JWT: {}", userEmail);
 
             if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
                 UserDetails userDetails = userDetailsService.loadUserByUsername(userEmail);
@@ -101,14 +92,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     );
 
                     SecurityContextHolder.getContext().setAuthentication(authToken);
-                    log.debug("Successfully authenticated user: {}", userEmail);
-                } else {
-                    log.warn("Invalid JWT token for user: {}", userEmail);
                 }
             }
         } catch (Exception e) {
             log.error("Error processing JWT: {}", e.getMessage());
-            // Don't throw exception, just continue without authentication
         }
 
         filterChain.doFilter(request, response);

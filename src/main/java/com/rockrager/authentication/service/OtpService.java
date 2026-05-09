@@ -31,58 +31,42 @@ public class OtpService {
 
     private final SecureRandom secureRandom = new SecureRandom();
 
-    // ✅ Track in-progress OTP generation by user email to prevent duplicates
     private final ConcurrentHashMap<String, Boolean> processingMap = new ConcurrentHashMap<>();
 
-    /**
-     * Generate and send OTP to user's email with duplicate prevention
-     */
     @Transactional
     public String generateAndSendOtp(User user, String sessionId, String deviceInfo, String ipAddress) {
         String userKey = user.getEmail();
 
-        // ✅ Check if OTP generation is already in progress for this user
         if (processingMap.putIfAbsent(userKey, Boolean.TRUE) != null) {
-            log.warn("⚠️ OTP generation already in progress for user: {}, waiting...", user.getEmail());
+            log.warn("OTP generation already in progress for user: {}, waiting...", user.getEmail());
 
-            // Wait a bit and then check if OTP was created
             try {
                 Thread.sleep(500);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
 
-            // Check if OTP was already created for this session
             Optional<OtpCode> existingOtp = otpCodeRepository.findBySessionId(sessionId);
             if (existingOtp.isPresent() && !existingOtp.get().isUsed()) {
-                log.info("✅ Returning existing OTP for session: {}", sessionId);
+                log.info("Returning existing OTP for session: {}", sessionId);
                 return existingOtp.get().getCode();
             }
             processingMap.remove(userKey);
         }
 
         try {
-            // ✅ Check if OTP already exists for this session (duplicate prevention)
             Optional<OtpCode> existingOtp = otpCodeRepository.findBySessionId(sessionId);
             if (existingOtp.isPresent() && !existingOtp.get().isUsed()) {
-                log.info("✅ OTP already exists for session: {}, returning existing OTP", sessionId);
+                log.info("OTP already exists for session: {}, returning existing OTP", sessionId);
                 return existingOtp.get().getCode();
             }
 
-            // Generate OTP code
             String otpCode = generateOtpCode();
 
-            log.info("=========================================");
-            log.info("GENERATING OTP");
-            log.info("User: {}", user.getEmail());
-            log.info("OTP Code: {}", otpCode);
-            log.info("Session ID: {}", sessionId);
-            log.info("=========================================");
+            log.info("Generating OTP for user: {}", user.getEmail());
 
-            // Calculate expiry time
             LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(otpExpirationMinutes);
 
-            // Create OTP entity
             OtpCode otp = OtpCode.builder()
                     .code(otpCode)
                     .user(user)
@@ -94,29 +78,22 @@ public class OtpService {
                     .build();
 
             otpCodeRepository.save(otp);
-            log.info("✅ OTP saved to database");
+            log.info("OTP saved to database for user: {}", user.getEmail());
 
-            // Send OTP via email
             try {
-                log.info("Attempting to send OTP email...");
                 emailService.sendOtpEmail(user.getEmail(), user.getFirstName(), otpCode, otpExpirationMinutes);
-                log.info("✅ OTP email sent successfully");
+                log.info("OTP email sent successfully to: {}", user.getEmail());
             } catch (Exception e) {
-                log.error("❌ Failed to send OTP email to: {}", user.getEmail(), e);
+                log.error("Failed to send OTP email to: {}", user.getEmail(), e);
                 throw new RuntimeException("Unable to send OTP. Please try again.");
             }
 
-            log.info("=========================================");
             return otpCode;
         } finally {
-            // ✅ Remove from processing map after completion
             processingMap.remove(userKey);
         }
     }
 
-    /**
-     * Validate OTP code
-     */
     @Transactional
     public boolean validateOtp(String sessionId, String otpCode) {
         OtpCode otp = otpCodeRepository.findBySessionIdAndCode(sessionId, otpCode)
@@ -138,7 +115,6 @@ public class OtpService {
             return false;
         }
 
-        // Mark OTP as used
         otp.setUsed(true);
         otp.setVerifiedAt(LocalDateTime.now());
         otpCodeRepository.save(otp);
@@ -147,9 +123,6 @@ public class OtpService {
         return true;
     }
 
-    /**
-     * Generate random numeric OTP code
-     */
     private String generateOtpCode() {
         StringBuilder otp = new StringBuilder();
         for (int i = 0; i < otpLength; i++) {
@@ -158,16 +131,10 @@ public class OtpService {
         return otp.toString();
     }
 
-    /**
-     * Check if user has valid OTP for session
-     */
     public boolean hasValidOtp(String sessionId) {
         return otpCodeRepository.findValidOtpBySessionId(sessionId, LocalDateTime.now()).isPresent();
     }
 
-    /**
-     * Clean up expired OTPs for user
-     */
     @Transactional
     public void cleanupExpiredOtps(User user) {
         int deletedCount = otpCodeRepository.deleteExpiredOtpsByUser(user, LocalDateTime.now());
@@ -176,22 +143,13 @@ public class OtpService {
         }
     }
 
-    /**
-     * Get OTP expiry time in seconds
-     */
     public int getOtpExpirySeconds() {
         return otpExpirationMinutes * 60;
     }
 
-    /**
-     * Resend OTP for existing session
-     */
     @Transactional
     public String resendOtp(String sessionId, User user, String deviceInfo, String ipAddress) {
-        // Delete old unused OTP for this session
         otpCodeRepository.deleteBySessionIdAndUsedFalse(sessionId);
-
-        // Generate and send new OTP
         return generateAndSendOtp(user, sessionId, deviceInfo, ipAddress);
     }
 

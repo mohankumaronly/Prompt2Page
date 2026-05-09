@@ -25,7 +25,6 @@ public class IpGeoLocationUtil {
             return "Unknown";
         }
 
-        // Check for local/private IPs
         if (isPrivateIp(ipAddress)) {
             return "Local/Private Network";
         }
@@ -61,6 +60,6 @@ public class IpGeoLocationUtil {
                 ip.startsWith("172.") ||
                 ip.equals("127.0.0.1") ||
                 ip.equals("localhost") ||
-                ip.equals("0:0:0:0:0:0:0:1"); // IPv6 localhost
+                ip.equals("0:0:0:0:0:0:0:1");
     }
 }

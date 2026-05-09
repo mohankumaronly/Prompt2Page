@@ -53,7 +53,6 @@ public class AuthController {
     ) {
         AuthResponse authResponse = authService.login(request);
 
-        // Set refresh token as HTTP-only cookie
         Cookie refreshTokenCookie = new Cookie("refreshToken", authResponse.getRefreshToken());
         refreshTokenCookie.setHttpOnly(true);
         refreshTokenCookie.setSecure(cookieSecure);
@@ -62,23 +61,20 @@ public class AuthController {
         refreshTokenCookie.setAttribute("SameSite", cookieSameSite);
         response.addCookie(refreshTokenCookie);
 
-        // Remove refreshToken from response body for security
         authResponse.setRefreshToken(null);
 
         return ResponseEntity.ok(authResponse);
     }
 
-    // NEW ENDPOINT - Initiate Login (Step 1)
     @PostMapping("/login/initiate")
     public ResponseEntity<LoginInitiateResponse> initiateLogin(
             @Valid @RequestBody LoginRequest request,
             HttpServletRequest httpRequest
     ) {
-        // Capture device info and IP from request
+
         String userAgent = httpRequest.getHeader("User-Agent");
         String clientIp = getClientIpAddress(httpRequest);
 
-        // Set device info if not already provided
         if (request.getDeviceInfo() == null) {
             request.setDeviceInfo(userAgent);
         }
@@ -101,7 +97,6 @@ public class AuthController {
     ) {
         AuthResponse authResponse = authService.verifyOtpAndLogin(request);
 
-        // Set refresh token as HTTP-only cookie
         if (authResponse.getRefreshToken() != null) {
             Cookie refreshTokenCookie = new Cookie("refreshToken", authResponse.getRefreshToken());
             refreshTokenCookie.setHttpOnly(true);
@@ -112,7 +107,6 @@ public class AuthController {
             response.addCookie(refreshTokenCookie);
         }
 
-        // Remove refreshToken from response body for security
         authResponse.setRefreshToken(null);
 
         return ResponseEntity.ok(authResponse);
@@ -131,7 +125,6 @@ public class AuthController {
 
         AuthResponse authResponse = authService.refreshToken(refreshToken);
 
-        // Set new refresh token as cookie
         Cookie refreshTokenCookie = new Cookie("refreshToken", authResponse.getRefreshToken());
         refreshTokenCookie.setHttpOnly(true);
         refreshTokenCookie.setSecure(cookieSecure);
@@ -158,7 +151,6 @@ public class AuthController {
 
         String result = authService.logout(refreshToken);
 
-        // Clear the refresh token cookie
         Cookie refreshTokenCookie = new Cookie("refreshToken", null);
         refreshTokenCookie.setHttpOnly(true);
         refreshTokenCookie.setSecure(cookieSecure);
@@ -221,7 +213,6 @@ public class AuthController {
         return null;
     }
 
-    // Helper method to get client IP address
     private String getClientIpAddress(HttpServletRequest request) {
         String ipAddress = request.getHeader("X-Forwarded-For");
         if (ipAddress == null || ipAddress.isEmpty() || "unknown".equalsIgnoreCase(ipAddress)) {
@@ -239,7 +230,7 @@ public class AuthController {
         if (ipAddress == null || ipAddress.isEmpty() || "unknown".equalsIgnoreCase(ipAddress)) {
             ipAddress = request.getRemoteAddr();
         }
-        // For multiple IPs (X-Forwarded-For can have multiple), take the first one
+
         if (ipAddress != null && ipAddress.contains(",")) {
             ipAddress = ipAddress.split(",")[0].trim();
         }

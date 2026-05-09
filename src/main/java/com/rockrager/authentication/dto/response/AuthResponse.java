@@ -13,7 +13,7 @@ public class AuthResponse {
     private String refreshToken;
     private String message;
 
-    // ✅ Add these fields for OTP flow
+
     private Boolean requiresOtp;
     private String email;
 }

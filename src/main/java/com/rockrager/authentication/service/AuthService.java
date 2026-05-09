@@ -53,11 +53,11 @@ public class AuthService {
                 .password(passwordEncoder.encode(request.getPassword()))
                 .emailVerified(false)
                 .role("USER")
-                .loginCount(0)                        // ✅ Required
-                .otpEnabled(true)                     // ✅ Required
-                .authProvider(AuthProvider.LOCAL)      // ✅ Required
-                .createdAt(LocalDateTime.now())        // Optional but recommended
-                .updatedAt(LocalDateTime.now())        // Optional but recommended
+                .loginCount(0)
+                .otpEnabled(true)
+                .authProvider(AuthProvider.LOCAL)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
                 .build();
 
         User savedUser = userRepository.save(user);
@@ -105,7 +105,6 @@ public class AuthService {
                 .build();
     }
 
-
     @Transactional
     public AuthResponse login(LoginRequest request) {
 
@@ -120,28 +119,22 @@ public class AuthService {
             throw new RuntimeException("Please verify your email first. Check your inbox for verification link.");
         }
 
-        // ✅ Check if user has logged in before
         boolean hasLoggedInBefore = user.getLoginCount() > 0;
 
         log.info("User login attempt for: {}, Login count: {}, hasLoggedInBefore: {}",
                 user.getEmail(), user.getLoginCount(), hasLoggedInBefore);
 
         if (hasLoggedInBefore) {
-            // ✅ Existing user - ONLY return requiresOtp = true
-            // ❌ DO NOT generate OTP here! The frontend will call /login/initiate
             log.info("Existing user - returning requiresOtp: true for: {}", user.getEmail());
 
-            // Mask email for response
             String maskedEmail = maskEmail(user.getEmail());
 
-            // ✅ Return requiresOtp = true to frontend (NO OTP generation!)
             return AuthResponse.builder()
                     .requiresOtp(true)
                     .message("Please verify your identity")
                     .email(maskedEmail)
                     .build();
         } else {
-            // ✅ First time login - generate tokens directly
             log.info("First time login for user: {}", user.getEmail());
 
             String accessToken = jwtService.generateAccessToken(user.getEmail());
@@ -158,7 +151,6 @@ public class AuthService {
 
             refreshTokenRepository.save(refreshTokenEntity);
 
-            // ✅ Update login count after successful login
             user.setLoginCount(user.getLoginCount() + 1);
             user.setLastLoginAt(LocalDateTime.now());
             user.setLastLoginDevice(request.getDeviceInfo());
@@ -232,7 +224,6 @@ public class AuthService {
 
         log.info("Email verified successfully for user: {} ({})", user.getEmail(), user.getFirstName());
 
-        // Send welcome email with retry mechanism
         sendWelcomeEmailWithRetry(user.getEmail(), user.getFirstName(), 3);
 
         return "Email verified successfully. You can now login.";
@@ -248,11 +239,10 @@ public class AuthService {
                 log.warn("Failed to send welcome email to: {} on attempt {}/{}", email, attempt, maxRetries, e);
                 if (attempt == maxRetries) {
                     log.error("Failed to send welcome email to: {} after {} attempts", email, maxRetries);
-                    // Store in database for later retry or send to dead letter queue
                     storeFailedEmailNotification(email, firstName, "WELCOME");
                 }
                 try {
-                    Thread.sleep(1000 * attempt); // Exponential backoff: 1s, 2s, 3s
+                    Thread.sleep(1000 * attempt);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     break;
@@ -262,9 +252,7 @@ public class AuthService {
     }
 
     private void storeFailedEmailNotification(String email, String firstName, String emailType) {
-        // You can create a FailedEmail entity to store failed emails for retry later
         log.info("Storing failed email notification for: {} of type: {}", email, emailType);
-        // Implement database storage for failed emails if needed
     }
 
     @Transactional
@@ -273,12 +261,10 @@ public class AuthService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found with email: " + email));
 
-        // Delete any existing reset tokens for this user
         passwordResetTokenRepository.findByToken(email).ifPresent(existingToken ->
                 passwordResetTokenRepository.delete(existingToken)
         );
 
-        // Generate reset token
         String token = UUID.randomUUID().toString();
 
         PasswordResetToken resetToken = PasswordResetToken.builder()
@@ -289,11 +275,10 @@ public class AuthService {
 
         passwordResetTokenRepository.save(resetToken);
 
-        // Send password reset email with user's name
         try {
             emailService.sendPasswordResetEmail(
                     user.getEmail(),
-                    user.getFirstName(),  // Pass user's first name for personalization
+                    user.getFirstName(),
                     token
             );
             log.info("Password reset email sent to: {} ({})", user.getEmail(), user.getFirstName());
@@ -324,7 +309,6 @@ public class AuthService {
 
         passwordResetTokenRepository.delete(resetToken);
 
-        // Revoke all refresh tokens for security
         refreshTokenRepository.deleteByUser(user);
 
         log.info("Password reset successful for user: {}", user.getEmail());
@@ -334,19 +318,15 @@ public class AuthService {
 
     @Transactional
     public LoginInitiateResponse initiateLogin(LoginRequest request) {
-        log.info("=========================================");
         log.info("INITIATE LOGIN - START");
 
-        // Store original email FIRST
         String originalEmail = request.getEmail();
         log.info("Original email for lookup: {}", originalEmail);
 
         log.info("Request password length: {}", request.getPassword() != null ? request.getPassword().length() : 0);
         log.info("Request device info: {}", request.getDeviceInfo());
         log.info("Request IP address: {}", request.getIpAddress());
-        log.info("=========================================");
 
-        // Find user using ORIGINAL email (not masked)
         log.info("Searching for user with email: {}", originalEmail);
         User user = userRepository.findByEmail(originalEmail)
                 .orElseThrow(() -> {
@@ -354,10 +334,9 @@ public class AuthService {
                     return new RuntimeException("Invalid email or password");
                 });
 
-        log.info("✅ User found - ID: {}, Email: {}, Login Count: {}, Auth Provider: {}",
+        log.info("User found - ID: {}, Email: {}, Login Count: {}, Auth Provider: {}",
                 user.getId(), user.getEmail(), user.getLoginCount(), user.getAuthProvider());
 
-        // GOOGLE CHECK
         if (user.getAuthProvider() == AuthProvider.GOOGLE && (user.getPassword() == null || user.getPassword().isEmpty())) {
             log.warn("User {} is Google-only account with no password", user.getEmail());
             throw new RuntimeException("This account uses Google login. Please sign in with Google.");
@@ -367,34 +346,29 @@ public class AuthService {
             log.info("User with linked Google account logging in with password: {}", request.getEmail());
         }
 
-        // Validate password
         log.info("Validating password...");
         boolean passwordMatches = passwordEncoder.matches(request.getPassword(), user.getPassword());
         log.info("Password matches: {}", passwordMatches);
 
         if (!passwordMatches) {
-            log.error("❌ Password mismatch for user: {}", originalEmail);
+            log.error("Password mismatch for user: {}", originalEmail);
             throw new RuntimeException("Invalid email or password");
         }
-        log.info("✅ Password validated successfully");
+        log.info("Password validated successfully");
 
-        // Check if email is verified
         log.info("Checking email verification status...");
         if (!user.isEmailVerified()) {
             log.warn("User {} has not verified email", user.getEmail());
             throw new RuntimeException("Please verify your email first. Check your inbox for verification link.");
         }
-        log.info("✅ Email is verified");
+        log.info("Email is verified");
 
-        // ✅ DELETE any existing unused OTPs for this user before generating new one
         otpCodeRepository.deleteByUserAndUsedFalse(user);
-        log.info("✅ Cleared any existing unused OTPs for user: {}", user.getEmail());
+        log.info("Cleared any existing unused OTPs for user: {}", user.getEmail());
 
-        // Generate unique session ID for this login attempt
         String sessionId = UUID.randomUUID().toString();
         log.info("Generated session ID: {}", sessionId);
 
-        // Generate and send OTP
         log.info("Generating and sending OTP...");
         String otpCode = otpService.generateAndSendOtp(
                 user,
@@ -402,17 +376,14 @@ public class AuthService {
                 request.getDeviceInfo(),
                 request.getIpAddress()
         );
-        log.info("✅ OTP generated and sent - Code: {} (for debugging)", otpCode);
+        log.info("OTP generated and sent - Code: {}", otpCode);
 
         log.info("OTP sent to user: {} for session: {}", user.getEmail(), sessionId);
 
-        // Only mask email for RESPONSE, not for database lookup
         String maskedEmail = maskEmail(user.getEmail());
         log.info("Masked email for response: {}", maskedEmail);
 
-        log.info("=========================================");
         log.info("INITIATE LOGIN - SUCCESS");
-        log.info("=========================================");
 
         return LoginInitiateResponse.builder()
                 .sessionId(sessionId)
@@ -427,33 +398,27 @@ public class AuthService {
     public AuthResponse verifyOtpAndLogin(com.rockrager.authentication.dto.request.OtpVerificationRequest request) {
         log.info("Verifying OTP for session: {}", request.getSessionId());
 
-        // Validate OTP
         boolean isValid = otpService.validateOtp(request.getSessionId(), request.getOtpCode());
 
         if (!isValid) {
             throw new RuntimeException("Invalid or expired OTP. Please try again.");
         }
 
-        // Get the OTP record to find the user
         com.rockrager.authentication.entity.OtpCode otpRecord = otpService.getOtpRecord(request.getSessionId())
                 .orElseThrow(() -> new RuntimeException("Session not found"));
 
         User user = otpRecord.getUser();
 
-        // Skip OTP for Google users if they somehow got here (should not happen)
         if (user.getAuthProvider() == AuthProvider.GOOGLE && (user.getPassword() == null || user.getPassword().isEmpty())) {
             throw new RuntimeException("This account uses Google login. Please sign in with Google.");
         }
 
-        // Update last login information
         user.setLastLoginAt(LocalDateTime.now());
         user.setLastLoginIp(otpRecord.getIpAddress());
         user.setLastLoginDevice(otpRecord.getDeviceInfo());
 
-        // ✅ Update login count for existing user
         user.setLoginCount(user.getLoginCount() + 1);
 
-        // Get location from IP
         try {
             String location = deviceInfoService.getLocationFromIp(otpRecord.getIpAddress());
             user.setLastLoginLocation(location);
@@ -464,11 +429,9 @@ public class AuthService {
 
         userRepository.save(user);
 
-        // Generate tokens
         String accessToken = jwtService.generateAccessToken(user.getEmail());
         String refreshToken = jwtService.generateRefreshToken(user.getEmail());
 
-        // Save refresh token
         refreshTokenRepository.deleteByUser(user);
         RefreshToken refreshTokenEntity = RefreshToken.builder()
                 .user(user)
@@ -478,15 +441,12 @@ public class AuthService {
                 .build();
         refreshTokenRepository.save(refreshTokenEntity);
 
-        // Send login notification email
         try {
             sendLoginNotificationEmail(user, otpRecord);
         } catch (Exception e) {
             log.error("Failed to send login notification email to: {}", user.getEmail(), e);
-            // Don't throw - login is still successful
         }
 
-        // Clean up used OTP
         otpService.cleanupExpiredOtps(user);
 
         log.info("User logged in successfully: {} from IP: {}", user.getEmail(), otpRecord.getIpAddress());
@@ -532,9 +492,7 @@ public class AuthService {
                 deviceInfo
         );
 
-        // Send email (you can use HTML template here)
         try {
-            // For now using simple email, you can enhance with HTML template
             emailService.sendLoginNotificationEmail(user.getEmail(), user.getFirstName(), subject, body);
         } catch (Exception e) {
             log.error("Failed to send login notification", e);

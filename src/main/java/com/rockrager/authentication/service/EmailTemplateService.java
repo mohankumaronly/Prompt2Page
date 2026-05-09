@@ -39,7 +39,6 @@ public class EmailTemplateService {
         }
     }
 
-    // NEW METHOD - Add this for OTP emails
     public String buildOtpEmailTemplate(String userName, String otpCode, int expiryMinutes) {
         try {
             return templateBuilder.buildOtpEmail(userName, otpCode, expiryMinutes);
@@ -49,7 +48,6 @@ public class EmailTemplateService {
         }
     }
 
-    // NEW FALLBACK METHOD - For OTP
     private String buildFallbackOtpTemplate(String otpCode, int expiryMinutes) {
         return String.format("""
             <html>
@@ -77,7 +75,6 @@ public class EmailTemplateService {
             """, otpCode, expiryMinutes);
     }
 
-    // Existing fallback methods
     private String buildFallbackVerificationTemplate(String verificationLink) {
         return String.format("""
             <html>

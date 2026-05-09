@@ -23,7 +23,6 @@ public interface OtpCodeRepository extends JpaRepository<OtpCode, UUID> {
     @Query("SELECT o FROM OtpCode o WHERE o.sessionId = :sessionId AND o.used = false AND o.expiresAt > :now")
     Optional<OtpCode> findValidOtpBySessionId(@Param("sessionId") String sessionId, @Param("now") LocalDateTime now);
 
-    // ✅ NEW METHOD - Find active OTP by user email
     @Query("SELECT o FROM OtpCode o WHERE o.user.email = :email AND o.used = false AND o.expiresAt > :now")
     Optional<OtpCode> findActiveOtpByUserEmail(@Param("email") String email, @Param("now") LocalDateTime now);
 

@@ -115,7 +115,6 @@ public class EmailService {
         }
     }
 
-    // Public HTML email method
     public void sendHtmlEmail(String to, String subject, String htmlBody) {
         try {
             log.debug("Preparing HTML email - To: {}, Subject: {}", to, subject);
@@ -227,37 +226,22 @@ public class EmailService {
 
     @Async
     public void sendOtpEmail(String to, String userName, String otpCode, int expiryMinutes) {
-        log.info("=========================================");
-        log.info("SENDING OTP EMAIL");
-        log.info("To: {}", to);
-        log.info("User: {}", userName);
-        log.info("OTP Code: {}", otpCode);
-        log.info("Expiry Minutes: {}", expiryMinutes);
-        log.info("=========================================");
+        log.info("Sending OTP email to: {}", to);
 
         try {
             String subject = "Your Login OTP - RockRager Authentication";
 
             if (htmlEmailEnabled) {
-                log.info("Building HTML OTP email template...");
                 String htmlContent = emailTemplateService.buildOtpEmailTemplate(userName, otpCode, expiryMinutes);
-                log.info("HTML template built, length: {} characters", htmlContent.length());
                 sendHtmlEmail(to, subject, htmlContent);
             } else {
-                log.info("Building plain text OTP content...");
                 String textContent = buildPlainTextOtpContent(otpCode, expiryMinutes);
                 sendPlainTextEmail(to, subject, textContent);
             }
 
-            log.info("✅ OTP email sent successfully to: {}", to);
-            log.info("=========================================");
+            log.info("OTP email sent successfully to: {}", to);
         } catch (Exception e) {
-            log.error("❌ Failed to send OTP email to: {}", to, e);
-            log.error("Error details: {}", e.getMessage());
-            if (e.getCause() != null) {
-                log.error("Cause: {}", e.getCause().getMessage());
-            }
-            log.info("=========================================");
+            log.error("Failed to send OTP email to: {}", to, e);
             throw new RuntimeException("Unable to send OTP email: " + e.getMessage(), e);
         }
     }
@@ -312,7 +296,7 @@ public class EmailService {
     public void sendGoogleWelcomeEmail(String to, String userName, String htmlContent) {
         log.info("Sending Google welcome email to: {}", to);
         try {
-            String subject = "Welcome to RockRager Authentication! 🎉";
+            String subject = "Welcome to RockRager Authentication!";
             sendHtmlEmail(to, subject, htmlContent);
             log.info("Google welcome email sent successfully to: {}", to);
         } catch (Exception e) {

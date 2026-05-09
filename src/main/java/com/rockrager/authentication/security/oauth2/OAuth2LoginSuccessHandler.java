@@ -41,7 +41,6 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
     @Value("${app.frontend.url:https://prompt2page.onrender.com}")
     private String frontendUrl;
 
-    // ✅ Rate Limiting Configuration from application.properties
     @Value("${rate.limit.enabled:true}")
     private boolean rateLimitEnabled;
 
@@ -54,7 +53,6 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
     @Value("${rate.limit.block-duration-minutes:60}")
     private int blockDurationMinutes;
 
-    // ✅ Rate limit info class to track attempts and block time
     private static class RateLimitInfo {
         int attempts;
         long firstAttemptTime;
@@ -67,7 +65,6 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
         }
     }
 
-    // ✅ Enhanced rate limiting cache
     private final ConcurrentHashMap<String, RateLimitInfo> rateLimitCache = new ConcurrentHashMap<>();
 
     @Override
@@ -81,7 +78,6 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
         String lastName = oAuth2User.getAttribute("family_name");
         String googleId = oAuth2User.getAttribute("sub");
 
-        // ✅ Validate Google token issuer for security
         String issuer = oAuth2User.getAttribute("iss");
         if (issuer != null && !"https://accounts.google.com".equals(issuer)) {
             log.error("Invalid token issuer for user: {}, issuer: {}", email, issuer);
@@ -89,32 +85,28 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
             return;
         }
 
-        // ✅ Rate limiting check
         int rateLimitStatus = checkRateLimit(email);
         if (rateLimitStatus == 2) {
-            log.warn("🚫 User is blocked for Google OAuth: {}", email);
+            log.warn("User is blocked for Google OAuth: {}", email);
             response.sendRedirect(frontendUrl + "/auth/login?error=account_blocked");
             return;
         }
         if (rateLimitStatus == 1) {
-            log.warn("⏰ Rate limit active for Google OAuth: {}", email);
+            log.warn("Rate limit active for Google OAuth: {}", email);
             response.sendRedirect(frontendUrl + "/auth/login?error=rate_limit_active");
             return;
         }
 
-        // Track session with location
         String ipAddress = getClientIpAddress(request);
         String userAgent = request.getHeader("User-Agent");
         String deviceInfo = deviceInfoService.getDeviceSummary(userAgent);
         String location = deviceInfoService.getLocationFromIp(ipAddress);
 
-        // Check if user is new or existing
         boolean isNewUser = !userRepository.findByEmail(email).isPresent();
 
         User user;
 
         if (isNewUser) {
-            // ✅ Create new user with Google - with login count tracking
             user = User.builder()
                     .firstName(firstName != null ? firstName : "Google")
                     .lastName(lastName != null ? lastName : "User")
@@ -125,53 +117,44 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
                     .role("USER")
                     .googleId(googleId)
                     .authProvider(AuthProvider.GOOGLE)
-                    .loginCount(0)  // Start with 0 for new users
+                    .loginCount(0)
                     .createdAt(LocalDateTime.now())
                     .updatedAt(LocalDateTime.now())
                     .build();
             user = userRepository.save(user);
-            log.info("✅ Created new Google user: {} with ID: {}", email, user.getId());
+            log.info("Created new Google user: {} with ID: {}", email, user.getId());
 
-            // Send WELCOME email for new user
             sendWelcomeEmail(user, ipAddress, location, deviceInfo);
 
         } else {
-            // ✅ Existing user - update and track login count
             user = userRepository.findByEmail(email).get();
-            log.info("✅ Existing user found: {} with login count: {}", email, user.getLoginCount());
+            log.info("Existing user found: {} with login count: {}", email, user.getLoginCount());
 
-            // If user exists with LOCAL provider but hasn't linked Google yet
             if (user.getAuthProvider() == AuthProvider.LOCAL && user.getGoogleId() == null) {
                 user.setGoogleId(googleId);
-                log.info("🔗 Linked Google account to existing local user: {}", email);
+                log.info("Linked Google account to existing local user: {}", email);
             }
 
-            // Update login count for existing user
             user.setLoginCount(user.getLoginCount() + 1);
 
-            // Check if this is a new device/login location
             boolean isNewDevice = checkIfNewDevice(user, ipAddress, deviceInfo);
             boolean isNewLocation = checkIfNewLocation(user, location);
 
             user = userRepository.save(user);
-            log.info("✅ Updated user: {} - new login count: {}", email, user.getLoginCount());
+            log.info("Updated user: {} - new login count: {}", email, user.getLoginCount());
 
-            // Send login notification email for existing user
             sendLoginNotificationEmail(user, ipAddress, location, deviceInfo, isNewDevice, isNewLocation);
         }
 
-        // Generate JWT tokens
         String accessToken = jwtService.generateAccessToken(user.getEmail());
         String refreshToken = jwtService.generateRefreshToken(user.getEmail());
 
-        // Update last login info
         user.setLastLoginAt(LocalDateTime.now());
         user.setLastLoginIp(ipAddress);
         user.setLastLoginDevice(deviceInfo);
         user.setLastLoginLocation(location);
         userRepository.save(user);
 
-        // Create user session
         UserSession session = UserSession.builder()
                 .user(user)
                 .sessionId(UUID.randomUUID().toString())
@@ -182,15 +165,13 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
                 .active(true)
                 .build();
         userSessionRepository.save(session);
-        log.info("📱 User session created for: {}", email);
+        log.info("User session created for: {}", email);
 
-        // Set cookies
         setCookie(response, "accessToken", accessToken, 900);
         setCookie(response, "refreshToken", refreshToken, 604800);
 
-        log.info("✅ Google login successful for user: {} from IP: {}, Device: {}", email, ipAddress, deviceInfo);
+        log.info("Google login successful for user: {} from IP: {}, Device: {}", email, ipAddress, deviceInfo);
 
-        // ✅ Record successful attempt - resets rate limit
         recordSuccessfulAttempt(email);
 
         response.sendRedirect(frontendUrl + "/auth/oauth2/callback?success=true&token=" + accessToken);
@@ -201,46 +182,38 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
 
         RateLimitInfo info = rateLimitCache.get(email);
         if (info == null) {
-            return 0; // Allowed
+            return 0;
         }
 
         long now = System.currentTimeMillis();
 
-        // Check if permanently blocked
         if (info.blockUntil > 0 && now < info.blockUntil) {
             long minutesLeft = (info.blockUntil - now) / 60000;
             long secondsLeft = ((info.blockUntil - now) / 1000) % 60;
-            log.warn("🚫 User {} is blocked for {} minutes and {} seconds", email, minutesLeft, secondsLeft);
-            return 2; // Blocked
+            log.warn("User {} is blocked for {} minutes and {} seconds", email, minutesLeft, secondsLeft);
+            return 2;
         }
 
-        // Reset if time window has passed
         if (now - info.firstAttemptTime > durationMinutes * 60000L) {
             rateLimitCache.remove(email);
-            log.info("🔄 Rate limit window expired for user: {}", email);
-            return 0; // Allowed - window reset
+            log.info("Rate limit window expired for user: {}", email);
+            return 0;
         }
 
-        // Check attempts
         if (info.attempts >= maxAttempts) {
-            // Block the user
             info.blockUntil = now + (blockDurationMinutes * 60000L);
             long blockMinutes = blockDurationMinutes;
-            log.warn("🚫 User {} exceeded {} attempts, blocked for {} minutes",
+            log.warn("User {} exceeded {} attempts, blocked for {} minutes",
                     email, maxAttempts, blockMinutes);
-            return 2; // Blocked
+            return 2;
         }
 
-        // Calculate wait time
         long waitSeconds = (info.firstAttemptTime + (durationMinutes * 60000L) - now) / 1000;
-        log.info("⏰ User {} has {} attempts left (total {}/{}), wait {} seconds",
+        log.info("User {} has {} attempts left (total {}/{}), wait {} seconds",
                 email, maxAttempts - info.attempts, info.attempts, maxAttempts, waitSeconds);
-        return 1; // Soft limit - wait
+        return 1;
     }
 
-    /**
-     * ✅ Record failed attempt (to be called from failure handler)
-     */
     public void recordFailedAttempt(String email) {
         if (!rateLimitEnabled) return;
 
@@ -250,25 +223,19 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
         if (info == null) {
             info = new RateLimitInfo(1, now);
             rateLimitCache.put(email, info);
-            log.info("📊 First failed attempt recorded for {}: 1/{}", email, maxAttempts);
+            log.info("First failed attempt recorded for {}: 1/{}", email, maxAttempts);
         } else if (info.blockUntil == 0 || now > info.blockUntil) {
             info.attempts++;
-            log.info("📊 Failed attempt #{} recorded for {}: {}/{}",
+            log.info("Failed attempt #{} recorded for {}: {}/{}",
                     info.attempts, email, info.attempts, maxAttempts);
         }
     }
 
-    /**
-     * ✅ Record successful attempt (resets counter)
-     */
     private void recordSuccessfulAttempt(String email) {
         rateLimitCache.remove(email);
-        log.info("✅ Successful login for {}, rate limit reset", email);
+        log.info("Successful login for {}, rate limit reset", email);
     }
 
-    /**
-     * ✅ Get rate limit status for admin endpoints
-     */
     public Map<String, Object> getRateLimitStatus(String email) {
         Map<String, Object> status = new HashMap<>();
         RateLimitInfo info = rateLimitCache.get(email);
@@ -298,12 +265,9 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
         return status;
     }
 
-    /**
-     * ✅ Manually reset rate limit for a user
-     */
     public void resetRateLimit(String email) {
         rateLimitCache.remove(email);
-        log.info("🔄 Rate limit manually reset for user: {}", email);
+        log.info("Rate limit manually reset for user: {}", email);
     }
 
     private void sendWelcomeEmail(User user, String ipAddress, String location, String deviceInfo) {
@@ -344,9 +308,9 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
             );
 
             emailService.sendGoogleWelcomeEmail(user.getEmail(), user.getFirstName(), htmlContent);
-            log.info("📧 Welcome email sent to: {}", user.getEmail());
+            log.info("Welcome email sent to: {}", user.getEmail());
         } catch (Exception e) {
-            log.error("❌ Failed to send welcome email to: {}", user.getEmail(), e);
+            log.error("Failed to send welcome email to: {}", user.getEmail(), e);
         }
     }
 
@@ -397,9 +361,9 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
             );
 
             emailService.sendGoogleLoginEmail(user.getEmail(), user.getFirstName(), htmlContent);
-            log.info("📧 Login notification email sent to: {}", user.getEmail());
+            log.info("Login notification email sent to: {}", user.getEmail());
         } catch (Exception e) {
-            log.error("❌ Failed to send login notification email to: {}", user.getEmail(), e);
+            log.error("Failed to send login notification email to: {}", user.getEmail(), e);
         }
     }
 
@@ -427,7 +391,6 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
             return xForwardedFor.split(",")[0].trim();
         }
         String remoteAddr = request.getRemoteAddr();
-        // Filter localhost IPv6 representation
         if ("0:0:0:0:0:0:0:1".equals(remoteAddr)) {
             remoteAddr = "127.0.0.1";
         }
@@ -445,6 +408,6 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
         cookie.setMaxAge(maxAgeSeconds);
         cookie.setAttribute("SameSite", "Lax");
         response.addCookie(cookie);
-        log.debug("🍪 Cookie set: {} - MaxAge: {} seconds, Secure: {}", name, maxAgeSeconds, isSecure);
+        log.debug("Cookie set: {} - MaxAge: {} seconds, Secure: {}", name, maxAgeSeconds, isSecure);
     }
 }

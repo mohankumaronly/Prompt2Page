@@ -28,7 +28,6 @@ public class OAuth2UserService extends DefaultOAuth2UserService {
     public OAuth2User loadUser(OAuth2UserRequest userRequest) throws OAuth2AuthenticationException {
         OAuth2User oAuth2User = super.loadUser(userRequest);
 
-        // Extract user info from Google
         Map<String, Object> attributes = oAuth2User.getAttributes();
         String email = (String) attributes.get("email");
         String firstName = (String) attributes.get("given_name");
@@ -37,38 +36,32 @@ public class OAuth2UserService extends DefaultOAuth2UserService {
 
         log.info("Google login attempt for email: {}", email);
 
-        // Check if user exists by email
         Optional<User> existingUser = userRepository.findByEmail(email);
         User user;
 
         if (existingUser.isPresent()) {
             user = existingUser.get();
 
-            // Case 1: User already has Google account linked
             if (user.getGoogleId() != null && user.getGoogleId().equals(googleId)) {
                 log.info("Existing Google user logging in: {}", email);
             }
-            // Case 2: User exists with LOCAL auth - Link Google account
             else if (user.getAuthProvider() == AuthProvider.LOCAL && user.getGoogleId() == null) {
                 user.setGoogleId(googleId);
-                // Keep authProvider as LOCAL (they can still use password)
                 user = userRepository.save(user);
                 log.info("Linked Google account to existing local user: {}", email);
             }
-            // Case 3: Different Google account trying to use same email (should not happen)
             else if (user.getGoogleId() != null && !user.getGoogleId().equals(googleId)) {
                 log.warn("Email {} already linked to different Google account", email);
                 throw new RuntimeException("This email is already associated with a different Google account");
             }
         } else {
-            // Case 4: New user - Create account with Google
             user = User.builder()
                     .firstName(firstName != null ? firstName : "Google")
                     .lastName(lastName != null ? lastName : "User")
                     .email(email)
-                    .password("") // No password for Google users initially
-                    .emailVerified(true) // Google emails are verified
-                    .otpEnabled(false) // Disable OTP for Google users
+                    .password("")
+                    .emailVerified(true)
+                    .otpEnabled(false)
                     .role("USER")
                     .googleId(googleId)
                     .authProvider(AuthProvider.GOOGLE)
@@ -77,7 +70,6 @@ public class OAuth2UserService extends DefaultOAuth2UserService {
             log.info("Created new user with Google authentication: {}", email);
         }
 
-        // Return OAuth2User with authorities
         return new DefaultOAuth2User(
                 Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + user.getRole())),
                 attributes,

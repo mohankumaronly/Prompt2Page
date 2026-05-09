@@ -21,15 +21,15 @@ public class UserAgentParser {
             return result;
         }
 
-        // Parse OS
+
         String os = parseOperatingSystem(userAgent);
         result.put("os", os);
 
-        // Parse Browser
+
         String browser = parseBrowser(userAgent);
         result.put("browser", browser);
 
-        // Parse Device Type
+
         String device = parseDeviceType(userAgent);
         result.put("device", device);
 

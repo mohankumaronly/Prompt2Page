@@ -43,7 +43,6 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
@@ -114,7 +113,6 @@ public class SecurityConfig {
         return source;
     }
 
-    // ✅ FIXED: Custom Authentication Entry Point for API requests
     private static class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
         @Override
         public void commence(HttpServletRequest request, HttpServletResponse response,
@@ -122,19 +120,15 @@ public class SecurityConfig {
 
             String requestUri = request.getRequestURI();
 
-            // For API requests, return 401 JSON
             if (requestUri.startsWith("/api/")) {
                 response.setStatus(HttpStatus.UNAUTHORIZED.value());
                 response.setContentType("application/json");
                 response.setCharacterEncoding("UTF-8");
                 response.getWriter().write("{\"message\": \"Unauthorized\", \"status\": 401, \"path\": \"" + requestUri + "\"}");
             }
-            // For OAuth2 requests - DO NOT REDIRECT, let Spring Security handle it
             else if (requestUri.startsWith("/oauth2/") || requestUri.startsWith("/login")) {
-                // Let Spring Security's OAuth2 login flow handle authentication
                 response.setStatus(HttpStatus.UNAUTHORIZED.value());
             }
-            // For other requests, also return 401 JSON
             else {
                 response.setStatus(HttpStatus.UNAUTHORIZED.value());
                 response.setContentType("application/json");
