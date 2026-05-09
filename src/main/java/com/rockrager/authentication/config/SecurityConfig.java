@@ -38,7 +38,7 @@ public class SecurityConfig {
     private final OAuth2LoginSuccessHandler oAuth2LoginSuccessHandler;
     private final OAuth2UserService oAuth2UserService;
 
-    @Value("${cors.allowed.origins:http://localhost:3000,http://localhost:8080,https://prompt2page.onrender.com,https://prompt2page-frontend.vercel.app}")
+    @Value("${cors.allowed.origins:http://localhost:3000,http://localhost:8080,http://localhost:8081,https://prompt2page.onrender.com,https://prompt2page-frontend.vercel.app}")
     private String allowedOrigins;
 
     @Bean
@@ -125,6 +125,9 @@ public class SecurityConfig {
                 response.setContentType("application/json");
                 response.setCharacterEncoding("UTF-8");
                 response.getWriter().write("{\"message\": \"Unauthorized\", \"status\": 401, \"path\": \"" + requestUri + "\"}");
+            }
+            else if (requestUri.startsWith("/oauth2/") || requestUri.startsWith("/login")) {
+                response.setStatus(HttpStatus.UNAUTHORIZED.value());
             }
             else if (requestUri.startsWith("/oauth2/") || requestUri.startsWith("/login")) {
                 response.setStatus(HttpStatus.UNAUTHORIZED.value());
